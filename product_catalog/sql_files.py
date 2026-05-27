@@ -1,0 +1,17 @@
+SQL_INSTALL_FILES = [
+    "01_staging_and_batch_tables.sql",
+    "CREATE FUNCTION clean_id.sql",
+    "CREATE FUNCTION clean_name.sql",
+    "CREATE FUNCTION safe_to_datetime.sql",
+    "CREATE PROCEDURE get_next_sequence.sql",
+    "CREATE PROCEDURE fix_all_null_strings().sql",
+    "CREATE PROCEDURE generate_product_offering().sql",
+    "CREATE PROCEDURE generate_product_offering_char_value().sql",
+    "CREATE PROCEDURE generate_product_offering_variant_unpivot().sql",
+    "CREATE PROCEDURE generate_product_offering_variant().sql",
+    "CREATE PROCEDURE generate_product_offering_price().sql",
+    "CREATE PROCEDURE generate_promotion().sql",
+    "CREATE PROCEDURE generate_contract_master().sql",
+    "03_generate_all.sql",
+    "02_load_product_mst.sql",
+]

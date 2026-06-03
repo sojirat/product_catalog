@@ -319,7 +319,7 @@ def write_dataset_to_csv(output_path: Path, dataset: tuple[list[str], list[dict]
         writer.writerow(columns)
 
         for row in rows:
-            writer.writerow([row[column] for column in columns])
+            writer.writerow([text_value(row[column]) for column in columns])
             row_count += 1
 
     print(f"Rows: {row_count}")
@@ -354,7 +354,7 @@ def write_dataset_to_worksheet(worksheet, dataset: tuple[list[str], list[dict]])
 
     row_count = 0
     for row in rows:
-        values = [row[column] for column in columns]
+        values = [excel_text_value(row[column]) for column in columns]
         worksheet.append(values)
         column_widths = [
             max(width, display_width(value))
@@ -403,7 +403,7 @@ def write_dataset_rows(
     row_count = 0
     for row in rows:
         for column_index, column in enumerate(columns, start=1):
-            worksheet.cell(row_index, column_index, row[column])
+            worksheet.cell(row_index, column_index, excel_text_value(row[column]))
         row_index += 1
         row_count += 1
 
@@ -417,6 +417,10 @@ def validate_identifier(identifier: str) -> None:
 
 def text_value(value) -> str:
     return "" if value is None else str(value).strip()
+
+
+def excel_text_value(value) -> str:
+    return "" if value is None else str(value)
 
 
 def display_width(value) -> int:

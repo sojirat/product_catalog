@@ -18,6 +18,7 @@ def main() -> None:
     load_env(env_path)
     config = load_database_config(env_path)
     mapping_table = get_mapping_table_name()
+    excel_file_filter = get_excel_file_filter()
     timestamp = datetime.now().strftime("%d%m%Y%H%M%S")
     output_dir = get_output_dir() / timestamp
     csv_dir = output_dir / "csv"
@@ -33,6 +34,14 @@ def main() -> None:
     try:
         with connection.cursor() as cursor:
             mapping_rows = fetch_mapping_rows(cursor, mapping_table)
+            mapping_rows = filter_mapping_rows_by_excel_file(
+                mapping_rows,
+                excel_file_filter,
+            )
+            if not mapping_rows:
+                print("No mapping rows matched export filter")
+                return
+
             datasets = measure(
                 timings,
                 "select_all_database_names",
@@ -105,6 +114,20 @@ def get_excel_template_dir() -> Path | None:
     return path if path.is_absolute() else BASE_DIR.parent / path
 
 
+def get_excel_file_filter() -> set[str]:
+    import os
+
+    value = os.getenv("EXPORT_EXCEL_FILES", "").strip()
+    if not value:
+        return set()
+
+    return {
+        build_excel_output_file_name(file_name.strip())
+        for file_name in value.split("|")
+        if file_name.strip()
+    }
+
+
 def fetch_mapping_rows(cursor, mapping_table: str) -> list[dict]:
     cursor.execute(f"SELECT * FROM {mapping_table}")
 
@@ -118,6 +141,35 @@ def fetch_mapping_rows(cursor, mapping_table: str) -> list[dict]:
         mapping_rows.append(row)
 
     return mapping_rows
+
+
+def filter_mapping_rows_by_excel_file(
+    mapping_rows: list[dict],
+    excel_file_filter: set[str],
+) -> list[dict]:
+    if not excel_file_filter:
+        return mapping_rows
+
+    return [
+        row
+        for row in mapping_rows
+        if build_excel_output_file_name(text_value(row.get("EXCEL File")))
+        in excel_file_filter
+    ]
+
+
+def database_object_exists(cursor, database_name: str) -> bool:
+    cursor.execute(
+        """
+        SELECT COUNT(*) AS cnt
+        FROM INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = %s
+        """,
+        (database_name,),
+    )
+    result = cursor.fetchone()
+    return result["cnt"] > 0
 
 
 def group_mapping_rows_by_raw_file(
@@ -137,7 +189,7 @@ def group_mapping_rows_by_excel_file(mapping_rows: list[dict]) -> dict[str, list
     rows_by_file = defaultdict(list)
 
     for row in mapping_rows:
-        excel_file = sanitize_file_name(text_value(row["EXCEL File"]))
+        excel_file = build_excel_output_file_name(text_value(row["EXCEL File"]))
         if not excel_file:
             continue
 
@@ -166,6 +218,17 @@ def build_csv_output_file_name(raw_output_file: str, timestamp: str) -> str:
     return build_base_output_name(raw_output_file, timestamp) + ".csv"
 
 
+def build_excel_output_file_name(excel_file: str) -> str:
+    file_name = sanitize_file_name(excel_file)
+    if not file_name:
+        return ""
+
+    if not file_name.lower().endswith(".xlsx"):
+        file_name += ".xlsx"
+
+    return file_name
+
+
 def build_base_output_name(raw_output_file: str, timestamp: str) -> str:
     file_name = raw_output_file.strip()
     file_name = file_name.replace("<ddmmyyyyhhmiss>", timestamp)
@@ -186,6 +249,10 @@ def load_datasets(cursor, mapping_rows: list[dict]) -> dict[str, tuple[list[str]
 
     for database_name in database_names:
         if not database_name:
+            continue
+
+        if not database_object_exists(cursor, database_name):
+            print(f"Skip missing database object: {database_name}")
             continue
 
         started_at = time.perf_counter()
@@ -215,6 +282,10 @@ def export_workbook(
 
     for row in rows:
         database_name = text_value(row["DATABASE NAME"])
+        if database_name not in datasets:
+            print(f"Skip missing dataset for {database_name} -> {output_path.name}")
+            continue
+
         sheet_name = unique_sheet_name(
             clean_sheet_name(text_value(row[sheet_name_column])),
             used_sheet_names,
@@ -223,6 +294,10 @@ def export_workbook(
 
         print(f"\n=== EXPORT {database_name} -> {output_path.name} / {sheet_name} ===")
         write_dataset_to_worksheet(worksheet, datasets[database_name])
+
+    if not workbook.sheetnames:
+        print(f"Skip empty workbook: {output_path}")
+        return
 
     workbook.save(output_path)
     print(f"Saved: {output_path} in {format_duration(time.perf_counter() - started_at)}")
@@ -251,6 +326,10 @@ def export_combined_workbooks(
 
         for row in rows:
             database_name = text_value(row["DATABASE NAME"])
+            if database_name not in datasets:
+                print(f"Skip missing dataset for {database_name} -> {excel_file}")
+                continue
+
             sheet_name = clean_sheet_name(text_value(row["EXCEL SHEET NAME"]))
             worksheet = get_or_create_worksheet(workbook, sheet_name, used_sheet_names)
 
@@ -259,6 +338,10 @@ def export_combined_workbooks(
                 write_dataset_to_template_worksheet(worksheet, datasets[database_name])
             else:
                 write_dataset_to_worksheet(worksheet, datasets[database_name])
+
+        if not workbook.sheetnames:
+            print(f"Skip empty combined workbook: {output_path}")
+            continue
 
         workbook.save(output_path)
         print(f"Saved: {output_path} in {format_duration(time.perf_counter() - file_started_at)}")
@@ -301,6 +384,10 @@ def export_csv_files(
                 csv_dir.parent.name,
             )
             database_name = text_value(row["DATABASE NAME"])
+            if database_name not in datasets:
+                print(f"Skip missing dataset for {database_name} -> {csv_file_name}")
+                continue
+
             output_path = csv_dir / csv_file_name
 
             print(f"\n=== EXPORT CSV {database_name} -> {csv_file_name} ===")

@@ -8,7 +8,8 @@ run:
 	$(PYTHON) product_catalog/run_all.py
 
 export:
-	$(PYTHON) product_catalog/export_template_mapping.py
+	EXPORT_EXCEL_FILES="$(FILES)" $(PYTHON) product_catalog/export_template_mapping.py
+# 	FILES="BM_AIS_Resource Specification_v1.3.xlsx|BM_AIS_Product Specification_v1.3.xlsx|BM_AIS_MasterCharacteristics_v1.3.xlsx"
 
 setup:
 	python3 -m venv $(VENV)

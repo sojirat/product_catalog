@@ -439,14 +439,17 @@ def write_dataset_to_csv(
 
         # Header
         writer.writerow([
-            f'="{str(column)}"'
+            "\t" + str(column)
             for column in columns
         ])
 
         # Data
         for row in rows:
             writer.writerow([
-                f'="{"" if row[column] is None else str(row[column])}"'
+                "\t" + (
+                    "" if row[column] is None
+                    else str(row[column])
+                )
                 for column in columns
             ])
 

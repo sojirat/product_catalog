@@ -132,16 +132,24 @@ def parse_optional_int(value: str | None) -> int | None:
 def connect_database(db_config: DatabaseConfig):
     import pymysql
 
-    return pymysql.connect(
+    connection = pymysql.connect(
         host=db_config.host,
         port=db_config.port,
         user=db_config.user,
         password=db_config.password,
         database=db_config.database,
         charset="utf8mb4",
+        use_unicode=True,
         cursorclass=pymysql.cursors.DictCursor,
         autocommit=False,
     )
+
+    with connection.cursor() as cursor:
+        cursor.execute("SET NAMES utf8mb4 COLLATE utf8mb4_general_ci")
+        cursor.execute("SET CHARACTER SET utf8mb4")
+        cursor.execute("SET character_set_connection=utf8mb4")
+
+    return connection
 
 
 def slugify(text: str) -> str:

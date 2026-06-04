@@ -277,11 +277,19 @@ def export_workbook(
     from openpyxl import Workbook
 
     started_at = time.perf_counter()
-    workbook = Workbook(write_only=True)
+
+    # IMPORTANT
+    workbook = Workbook()
+
+    # Remove default sheet
+    default_sheet = workbook.active
+    workbook.remove(default_sheet)
+
     used_sheet_names = set()
 
     for row in rows:
         database_name = text_value(row["DATABASE NAME"])
+
         if database_name not in datasets:
             print(f"Skip missing dataset for {database_name} -> {output_path.name}")
             continue
@@ -290,17 +298,26 @@ def export_workbook(
             clean_sheet_name(text_value(row[sheet_name_column])),
             used_sheet_names,
         )
+
         worksheet = workbook.create_sheet(title=sheet_name)
 
         print(f"\n=== EXPORT {database_name} -> {output_path.name} / {sheet_name} ===")
-        write_dataset_to_worksheet(worksheet, datasets[database_name])
+
+        write_dataset_to_worksheet(
+            worksheet,
+            datasets[database_name],
+        )
 
     if not workbook.sheetnames:
         print(f"Skip empty workbook: {output_path}")
         return
 
     workbook.save(output_path)
-    print(f"Saved: {output_path} in {format_duration(time.perf_counter() - started_at)}")
+
+    print(
+        f"Saved: {output_path} in "
+        f"{format_duration(time.perf_counter() - started_at)}"
+    )
 
 
 def export_combined_workbooks(
@@ -317,7 +334,15 @@ def export_combined_workbooks(
         file_started_at = time.perf_counter()
         output_path = output_dir / excel_file
         template_path = find_template_path(template_dir, excel_file)
-        workbook = load_workbook(template_path) if template_path else Workbook(write_only=True)
+        
+        if template_path:
+            workbook = load_workbook(template_path)
+        else:
+            workbook = Workbook()
+
+            if workbook.active:
+                workbook.remove(workbook.active)
+                
         used_sheet_names = set()
 
         print(f"\n=== EXPORT COMBINED {excel_file} ===")
@@ -397,16 +422,34 @@ def export_csv_files(
     print(f"CSV files total: {format_duration(time.perf_counter() - csv_started_at)}")
 
 
-def write_dataset_to_csv(output_path: Path, dataset: tuple[list[str], list[dict]]) -> None:
+def write_dataset_to_csv(
+    output_path: Path,
+    dataset: tuple[list[str], list[dict]],
+) -> None:
     columns, rows = dataset
 
     row_count = 0
-    with output_path.open("w", newline="", encoding="utf-8-sig") as csv_file:
-        writer = csv.writer(csv_file)
-        writer.writerow(columns)
 
+    with output_path.open(
+        "w",
+        newline="",
+        encoding="utf-8-sig",
+    ) as csv_file:
+        writer = csv.writer(csv_file)
+
+        # Header
+        writer.writerow([
+            f'="{str(column)}"'
+            for column in columns
+        ])
+
+        # Data
         for row in rows:
-            writer.writerow([text_value(row[column]) for column in columns])
+            writer.writerow([
+                f'="{"" if row[column] is None else str(row[column])}"'
+                for column in columns
+            ])
+
             row_count += 1
 
     print(f"Rows: {row_count}")
@@ -432,25 +475,86 @@ def unique_sheet_name(sheet_name: str, used_sheet_names: set[str]) -> str:
     return candidate
 
 
-def write_dataset_to_worksheet(worksheet, dataset: tuple[list[str], list[dict]]) -> None:
+def write_dataset_to_worksheet(
+    worksheet,
+    dataset: tuple[list[str], list[dict]],
+) -> None:
+    from openpyxl.styles import Alignment
     from openpyxl.utils import get_column_letter
+    from wcwidth import wcswidth
 
     columns, rows = dataset
-    worksheet.append(columns)
-    column_widths = [display_width(column) for column in columns]
 
+    wrap_alignment = Alignment(
+        wrap_text=True,
+        vertical="top",
+    )
+
+    column_widths = []
+
+    # Header
+    for column_index, column in enumerate(columns, start=1):
+        cell = worksheet.cell(
+            row=1,
+            column=column_index,
+        )
+
+        # FORCE HEADER AS TEXT
+        cell.value = "" if column is None else str(column)
+        cell.data_type = "s"
+        cell.number_format = "@"
+
+        cell.alignment = wrap_alignment
+
+        width = max(wcswidth(str(column)), 10)
+        column_widths.append(width)
+
+    # Data
     row_count = 0
-    for row in rows:
-        values = [excel_text_value(row[column]) for column in columns]
-        worksheet.append(values)
-        column_widths = [
-            max(width, display_width(value))
-            for width, value in zip(column_widths, values)
-        ]
+
+    for row_index, row in enumerate(rows, start=2):
+        max_lines = 1
+
+        for column_index, column in enumerate(columns, start=1):
+            value = excel_text_value(row[column])
+
+            cell = worksheet.cell(
+                row=row_index,
+                column=column_index,
+            )
+
+            # FORCE EVERYTHING TO TEXT
+            text = "" if value is None else str(value)
+
+            cell.value = text
+            cell.data_type = "s"
+            cell.number_format = "@"
+
+            cell.alignment = wrap_alignment
+
+            lines = text.splitlines() or [""]
+            line_width = max(wcswidth(line) for line in lines)
+
+            column_widths[column_index - 1] = max(
+                column_widths[column_index - 1],
+                min(line_width, 80),
+            )
+
+            max_lines = max(
+                max_lines,
+                len(lines),
+            )
+
+        # Auto row height
+        worksheet.row_dimensions[row_index].height = max_lines * 20
+
         row_count += 1
 
+    # Apply column widths
     for index, width in enumerate(column_widths, start=1):
-        worksheet.column_dimensions[get_column_letter(index)].width = min(width + 2, 60)
+        worksheet.column_dimensions[
+            get_column_letter(index)
+        ].width = min(width + 4, 100)
 
     print(f"Rows: {row_count}")
 
@@ -509,6 +613,10 @@ def text_value(value) -> str:
 def excel_text_value(value) -> str:
     return "" if value is None else str(value)
 
+
+def force_csv_text(value) -> str:
+    text = "" if value is None else str(value)
+    return f'="{text}"'
 
 def display_width(value) -> int:
     if value is None:

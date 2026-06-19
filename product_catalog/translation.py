@@ -107,7 +107,10 @@ def load_run_config(env_path: Path) -> RunConfig:
 
     batch_id = parse_optional_int(os.getenv("BATCH_ID", ""))
     triggered_by = os.getenv("TRIGGERED_BY", "").strip() or "system"
-    sql_dir = Path(os.getenv("SQL_DIR", "")).expanduser()
+    sql_dir = resolve_repo_path(
+        os.getenv("SQL_DIR", "sql"),
+        env_path,
+    )
     source_product_table = os.getenv("SOURCE_PRODUCT_TABLE", "PRODUCT_MST_20260508")
     load_batch_name = os.getenv("LOAD_BATCH_NAME", "MIGRATE_DATA_20260508")
     load_created_by = os.getenv("LOAD_CREATED_BY", triggered_by).strip() or triggered_by
@@ -120,6 +123,15 @@ def load_run_config(env_path: Path) -> RunConfig:
         load_batch_name=load_batch_name,
         load_created_by=load_created_by,
     )
+
+
+def resolve_repo_path(value: str, env_path: Path) -> Path:
+    path = Path(value.strip() or "sql").expanduser()
+
+    if path.is_absolute():
+        return path
+
+    return env_path.resolve().parent.parent / path
 
 
 def parse_optional_int(value: str | None) -> int | None:

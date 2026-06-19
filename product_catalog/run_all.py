@@ -53,6 +53,9 @@ def main() -> None:
 
     try:
         with connection.cursor() as cursor:
+            configure_run_session(cursor)
+            kill_stale_database_sessions(cursor, config.database)
+
             if args.command == "run-flow":
                 batch_id = measure(
                     timings,
@@ -91,6 +94,51 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def configure_run_session(cursor) -> None:
+    cursor.execute("SET SESSION lock_wait_timeout = 5")
+    cursor.execute("SET SESSION innodb_lock_wait_timeout = 5")
+
+
+def kill_stale_database_sessions(cursor, database_name: str) -> None:
+    cursor.execute("SELECT CONNECTION_ID() AS connection_id")
+    current_connection_id = cursor.fetchone()["connection_id"]
+    cursor.execute("SHOW FULL PROCESSLIST")
+    sessions = cursor.fetchall()
+    killed_sessions = []
+
+    for session in sessions:
+        session_id = session.get("Id")
+        if session_id == current_connection_id:
+            continue
+
+        if session.get("db") != database_name:
+            continue
+
+        if session.get("Command") == "Daemon":
+            continue
+
+        cursor.execute(f"KILL {int(session_id)}")
+        killed_sessions.append(session)
+
+    if not killed_sessions:
+        return
+
+    print("\n=== KILL STALE DATABASE SESSIONS ===")
+    for session in killed_sessions:
+        info = (session.get("Info") or "").strip().replace("\n", " ")
+        if len(info) > 160:
+            info = info[:157] + "..."
+
+        print(
+            "Killed "
+            f"id={session.get('Id')} "
+            f"command={session.get('Command')} "
+            f"time={session.get('Time')}s "
+            f"state={session.get('State') or '-'} "
+            f"info={info or '-'}"
+        )
+
+
 def reset_and_load_product_mst(cursor, connection, database_name: str, run_config) -> int | None:
     print("\n=== RESET DATABASE OBJECTS ===")
     cursor.execute("UPDATE sequence_registry SET last_sequence = 0")
@@ -110,27 +158,32 @@ def reset_and_load_product_mst(cursor, connection, database_name: str, run_confi
             "DROP TABLE IF EXISTS tbl_product_offering_price",
             "DROP TABLE IF EXISTS tbl_promotion",
             "DROP TABLE IF EXISTS tbl_contract_master",
-            "DROP VIEW IF EXISTS v_product_offering",
-            "DROP VIEW IF EXISTS v_product_offering_category",
-            "DROP VIEW IF EXISTS v_product_offering_channel",
-            "DROP VIEW IF EXISTS v_product_offering_char_value",
-            "DROP VIEW IF EXISTS v_product_offering_market_segment",
-            "DROP VIEW IF EXISTS v_product_offering_place",
-            "DROP VIEW IF EXISTS v_product_offering_spec_characteristic",
-            "DROP VIEW IF EXISTS v_product_offering_variant",
-            "DROP VIEW IF EXISTS v_product_offering_price",
-            "DROP VIEW IF EXISTS v_product_offering_price_tax",
-            "DROP VIEW IF EXISTS v_promotion",
-            "DROP VIEW IF EXISTS v_promotion_action",
-            "DROP VIEW IF EXISTS v_extension_contract_master",
-            "DROP VIEW IF EXISTS v_promotion_master_extension",
-            "DROP VIEW IF EXISTS v_promotion_meta_extension_campaign",
-            "DROP VIEW IF EXISTS v_promotion_meta_extension_value",
             "DROP TABLE IF EXISTS generate_all_log",
             "DROP TABLE IF EXISTS ingest_batch_detail",
             "DROP TABLE IF EXISTS ingest_batch",
-            "DROP VIEW IF EXISTS v_product_mst_audit",
-            "DROP VIEW IF EXISTS v_product_mst_with_batch",
+            "DROP VIEW IF EXISTS v_master_meta_campaign_master",
+            "DROP VIEW IF EXISTS v_master_meta_contract_master",
+            "DROP VIEW IF EXISTS v_product_mst",
+            "DROP VIEW IF EXISTS v_product_offering",
+            "DROP VIEW IF EXISTS v_product_offering_category",
+            "DROP VIEW IF EXISTS v_product_offering_category_all",
+            "DROP VIEW IF EXISTS v_product_offering_channel",
+            "DROP VIEW IF EXISTS v_product_offering_char_value",
+            "DROP VIEW IF EXISTS v_product_offering_market_segment",
+            "DROP VIEW IF EXISTS v_product_offering_meta_extension_material_info",
+            "DROP VIEW IF EXISTS v_product_offering_place",
+            "DROP VIEW IF EXISTS v_product_offering_price",
+            "DROP VIEW IF EXISTS v_product_offering_price_tax",
+            "DROP VIEW IF EXISTS v_product_offering_spec_characteristic",
+            "DROP VIEW IF EXISTS v_product_offering_variant",
+            "DROP VIEW IF EXISTS v_product_offering_variant_product_offering_price",
+            "DROP VIEW IF EXISTS v_product_offering_with_product_offering_price",
+            "DROP VIEW IF EXISTS v_promotion",
+            "DROP VIEW IF EXISTS v_promotion_action",
+            "DROP VIEW IF EXISTS v_promotion_master_extension",
+            "DROP VIEW IF EXISTS v_promotion_meta_ext_value_allowed_airtime_installment",
+            "DROP VIEW IF EXISTS v_promotion_meta_ext_value_contract_detail",
+            "DROP VIEW IF EXISTS v_promotion_meta_ext_value_extra_document"
         ],
     )
     connection.commit()
@@ -171,9 +224,18 @@ def validate_source_table(cursor, database_name: str, table_name: str) -> None:
 
 
 def install_load_product_mst_only(cursor, connection, sql_dir: Path) -> None:
+    if not sql_dir.exists():
+        raise FileNotFoundError(
+            f"SQL_DIR does not exist: {sql_dir}. "
+            "Set SQL_DIR in product_catalog/.env to the folder containing 02_load_product_mst.sql."
+        )
+
     source_path = sql_dir / "02_load_product_mst.sql"
     if not source_path.exists():
-        raise FileNotFoundError(f"SQL file not found: {source_path}")
+        raise FileNotFoundError(
+            f"SQL file not found: {source_path}. "
+            "Set SQL_DIR in product_catalog/.env to the folder containing 02_load_product_mst.sql."
+        )
 
     print("\n=== INSTALL load_product_mst_only ===")
     script = source_path.read_text()

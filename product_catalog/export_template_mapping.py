@@ -1,6 +1,8 @@
+import os
 import re
 import csv
 import time
+from copy import copy
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -8,6 +10,7 @@ from pathlib import Path
 from translation import connect_database, load_database_config, load_env
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.utils import get_column_letter
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -72,6 +75,13 @@ def main() -> None:
                 mapping_rows,
             )
 
+            header_template_path = get_excel_header_template_path()
+            header_template_workbook = (
+                load_workbook(header_template_path)
+                if header_template_path
+                else None
+            )
+
             #
             # EXPORT XLSX
             #
@@ -84,6 +94,7 @@ def main() -> None:
                     rows,
                     datasets,
                     "Template File(Sheet Name)",
+                    header_template_workbook,
                 )
 
             #
@@ -162,6 +173,23 @@ def get_excel_template_dir() -> Path | None:
     path = Path(value).expanduser()
 
     return path if path.is_absolute() else BASE_DIR.parent / path
+
+
+def get_excel_header_template_path() -> Path | None:
+    value = os.getenv(
+        "EXCEL_HEADER_TEMPLATE_PATH",
+        "",
+    ).strip()
+
+    if value:
+        path = Path(value).expanduser()
+        if not path.is_absolute():
+            path = BASE_DIR.parent / path
+
+        return path if path.exists() else None
+
+    candidate = BASE_DIR.parent / "template" / "excel_header_template.xlsx"
+    return candidate if candidate.exists() else None
 
 
 def get_excel_file_filter() -> set[str]:
@@ -417,6 +445,7 @@ def export_workbook(
     rows: list[dict],
     datasets: dict[str, tuple[list[str], list[dict]]],
     sheet_name_column: str,
+    header_template_workbook=None,
 ) -> None:
     started_at = time.perf_counter()
 
@@ -459,10 +488,22 @@ def export_workbook(
             f"{sheet_name} ==="
         )
 
-        write_dataset_to_worksheet(
-            worksheet,
-            datasets[database_name],
+        header_template_sheet_name = text_value(
+            row.get("EXCEL HEADER TEMPLATE")
         )
+
+        if header_template_workbook and header_template_sheet_name:
+            write_dataset_to_template_worksheet(
+                worksheet,
+                datasets[database_name],
+                header_template_workbook,
+                header_template_sheet_name,
+            )
+        else:
+            write_dataset_to_worksheet(
+                worksheet,
+                datasets[database_name],
+            )
 
     if not workbook.sheetnames:
         print(f"Skip empty workbook: {output_path}")
@@ -591,6 +632,9 @@ def write_dataset_to_worksheet(
 
     print(f"Rows: {row_count}")
 
+    # Finalize formatting: ensure all columns are text and auto-size
+    force_text_and_autosize(worksheet, max_width=150)
+
 
 #
 # XLSX -> CSV
@@ -600,6 +644,9 @@ def export_csv_files(
     xlsx_dir: Path,
     rows_by_file: dict[str, list[dict]],
 ) -> None:
+    # Convert the raw xlsx exports from xlsx_dir into CSV.
+    # This preserves the original CSV behavior and does not use the
+    # combined workbook output that may include header templates.
     csv_started_at = time.perf_counter()
 
     processed_files = set()
@@ -641,6 +688,115 @@ def export_csv_files(
         f"CSV files total: "
         f"{format_duration(time.perf_counter() - csv_started_at)}"
     )
+
+
+def force_text_and_autosize(worksheet, max_width: int = 150) -> None:
+    """Convert writable cells to text and auto-size columns (safe for merged cells).
+
+    This intentionally does NOT delete any rows or modify merged ranges; it
+    only sets `data_type` and `number_format` on non-merged placeholder cells
+    and computes column widths based on visible text.
+    """
+    from openpyxl.utils import get_column_letter
+    try:
+        from wcwidth import wcswidth
+    except Exception:
+        def wcswidth(s):
+            return len(s or "")
+
+    # Compute widths and set text format where possible
+    column_widths: dict[int, int] = {}
+
+    try:
+        from openpyxl.cell.cell import MergedCell
+    except Exception:
+        MergedCell = None
+
+    for row in worksheet.iter_rows(min_row=1, max_row=worksheet.max_row):
+        for cell in row:
+            text = "" if cell.value is None else str(cell.value)
+            col_index = cell.column
+            width = max(1, wcswidth(text))
+            prev = column_widths.get(col_index, 0)
+            column_widths[col_index] = max(prev, min(width, max_width))
+
+            if MergedCell is not None and isinstance(cell, MergedCell):
+                continue
+
+            try:
+                cell.data_type = "s"
+                cell.number_format = "@"
+            except Exception:
+                pass
+
+    for col_index, width in column_widths.items():
+        letter = get_column_letter(col_index)
+        worksheet.column_dimensions[letter].width = min(width + 4, max_width)
+
+    if column_widths:
+        print(f"Auto-sized {len(column_widths)} columns (max {max_width})")
+
+
+def finalize_worksheet_formatting(worksheet, start_row: int = 1, max_width: int = 150) -> None:
+    """Apply final formatting to worksheet:
+    - If row 1 is empty across all columns, delete it.
+    - Set all cells to text format.
+    - Auto-size columns based on visible values (max width cap).
+    """
+    from openpyxl.utils import get_column_letter
+    try:
+        from wcwidth import wcswidth
+    except Exception:
+        def wcswidth(s):
+            return len(s or "")
+
+    # If first row (row 1) is entirely empty, remove it.
+    first_row_cells = next(worksheet.iter_rows(min_row=1, max_row=1), None)
+    first_row_values = []
+    if first_row_cells:
+        for cell in first_row_cells:
+            val = cell.value
+            first_row_values.append(val)
+
+    if first_row_values and all((v is None or str(v).strip() == "") for v in first_row_values):
+        # delete first row (safe for merged cells/row dimensions)
+        worksheet.delete_rows(1, 1)
+        print("Removed empty first row")
+
+    # Ensure all cells are text and compute column widths
+    column_widths: dict[int, int] = {}
+    for row in worksheet.iter_rows(min_row=1, max_row=worksheet.max_row):
+        for cell in row:
+            # Compute width from value first
+            text = "" if cell.value is None else str(cell.value)
+            col_index = cell.column
+            width = max(1, wcswidth(text))
+            prev = column_widths.get(col_index, 0)
+            column_widths[col_index] = max(prev, min(width, max_width))
+
+            # Skip applying writable properties to merged placeholder cells
+            try:
+                from openpyxl.cell.cell import MergedCell
+            except Exception:
+                MergedCell = None
+
+            if MergedCell is not None and isinstance(cell, MergedCell):
+                continue
+
+            # Set as text (skip merged cell placeholders)
+            try:
+                cell.data_type = "s"
+                cell.number_format = "@"
+            except Exception:
+                # some cell objects are read-only in certain cases
+                pass
+
+    # Apply column widths
+    for col_index, width in column_widths.items():
+        letter = get_column_letter(col_index)
+        worksheet.column_dimensions[letter].width = min(width + 4, max_width)
+    if column_widths:
+        print(f"Auto-sized {len(column_widths)} columns (max {max_width})")
 
 
 def convert_xlsx_to_csv(
@@ -693,6 +849,13 @@ def export_combined_workbooks(
 ) -> None:
     combined_started_at = time.perf_counter()
 
+    header_template_path = get_excel_header_template_path()
+    header_template_workbook = (
+        load_workbook(header_template_path)
+        if header_template_path
+        else None
+    )
+
     for excel_file, rows in rows_by_excel_file.items():
         file_started_at = time.perf_counter()
 
@@ -735,10 +898,23 @@ def export_combined_workbooks(
                 used_sheet_names,
             )
 
-            if template_path:
+            header_template_sheet_name = text_value(
+                row.get("EXCEL HEADER TEMPLATE")
+            )
+
+            if header_template_workbook and header_template_sheet_name:
                 write_dataset_to_template_worksheet(
                     worksheet,
                     datasets[database_name],
+                    header_template_workbook,
+                    header_template_sheet_name,
+                )
+            elif template_path:
+                write_dataset_to_template_worksheet(
+                    worksheet,
+                    datasets[database_name],
+                    None,
+                    "",
                 )
             else:
                 write_dataset_to_worksheet(
@@ -799,10 +975,23 @@ def get_or_create_worksheet(
 def write_dataset_to_template_worksheet(
     worksheet,
     dataset: tuple[list[str], list[dict]],
+    header_template_workbook,
+    header_template_sheet_name: str,
 ) -> None:
     data_start_row = infer_template_data_start_row(
         worksheet
     )
+
+    if (
+        header_template_workbook
+        and header_template_sheet_name
+    ):
+        data_start_row = copy_header_rows_from_excel_header_template(
+            worksheet,
+            header_template_workbook,
+            header_template_sheet_name,
+            dataset[0],
+        )
 
     clear_rows_from(
         worksheet,
@@ -815,6 +1004,257 @@ def write_dataset_to_template_worksheet(
         data_start_row,
         include_header=False,
     )
+
+    # Ensure all cells are text and autosized (safe operation)
+    force_text_and_autosize(worksheet, max_width=150)
+
+
+def copy_header_rows_from_excel_header_template(
+    worksheet,
+    header_template_workbook,
+    header_template_sheet_name: str,
+    target_columns: list[str],
+) -> int:
+    if header_template_sheet_name not in header_template_workbook.sheetnames:
+        print(
+            f"Skip missing header template sheet: "
+            f"{header_template_sheet_name}"
+        )
+        return infer_template_data_start_row(worksheet)
+
+    source_ws = header_template_workbook[
+        header_template_sheet_name
+    ]
+
+    source_header_end = 1
+    for row_index in range(2, source_ws.max_row + 1):
+        row_has_value = any(
+            cell.value is not None
+            for cell in source_ws[row_index]
+        )
+
+        if row_has_value:
+            source_header_end = row_index
+            continue
+
+        if source_header_end > 1:
+            break
+
+    if source_header_end <= 1:
+        return 2
+
+    column_map = build_header_column_map(
+        source_ws,
+        target_columns,
+    )
+
+    if not column_map:
+        return 2
+
+    clear_rows_from(
+        worksheet,
+        2,
+    )
+    clear_merged_cells_in_range(
+        worksheet,
+        2,
+        source_header_end,
+    )
+
+    for source_row in range(2, source_header_end + 1):
+        row_dim = source_ws.row_dimensions.get(source_row)
+        if row_dim is not None and row_dim.height is not None:
+            worksheet.row_dimensions[source_row].height = (
+                row_dim.height
+            )
+
+        for source_col, target_col in column_map.items():
+            source_cell = source_ws.cell(
+                row=source_row,
+                column=source_col,
+            )
+            target_cell = worksheet.cell(
+                row=source_row,
+                column=target_col,
+            )
+
+            copy_cell(source_cell, target_cell)
+
+    copy_header_merge_ranges(
+        source_ws,
+        worksheet,
+        source_header_end,
+        column_map,
+    )
+    copy_column_dimensions(
+        source_ws,
+        worksheet,
+        column_map,
+    )
+
+    return source_header_end + 1
+
+
+def build_header_column_map(
+    header_ws,
+    target_columns: list[str],
+) -> dict[int, int]:
+    normalized_targets: dict[str, list[int]] = {}
+
+    for index, column in enumerate(target_columns, start=1):
+        normalized = normalize_header_key(column)
+        if not normalized:
+            continue
+
+        normalized_targets.setdefault(
+            normalized,
+            [],
+        ).append(index)
+
+    column_map: dict[int, int] = {}
+    used_targets: set[int] = set()
+
+    for source_col in range(1, header_ws.max_column + 1):
+        normalized = normalize_header_key(
+            header_ws.cell(
+                row=1,
+                column=source_col,
+            ).value
+        )
+
+        if not normalized:
+            continue
+
+        candidates = normalized_targets.get(normalized)
+        if not candidates:
+            continue
+
+        target_index = next(
+            (
+                candidate
+                for candidate in candidates
+                if candidate not in used_targets
+            ),
+            None,
+        )
+
+        if target_index is None:
+            target_index = candidates[0]
+
+        column_map[source_col] = target_index
+        used_targets.add(target_index)
+
+    return column_map
+
+
+def normalize_header_key(value) -> str:
+    return (
+        ""
+        if value is None
+        else str(value).strip().lower()
+    )
+
+
+def copy_cell(source_cell, target_cell) -> None:
+    target_cell.value = source_cell.value
+    target_cell.data_type = source_cell.data_type
+    target_cell.number_format = source_cell.number_format
+    target_cell.font = copy(source_cell.font)
+    target_cell.border = copy(source_cell.border)
+    target_cell.fill = copy(source_cell.fill)
+    target_cell.alignment = copy(source_cell.alignment)
+    target_cell.protection = copy(source_cell.protection)
+
+    if source_cell.comment:
+        target_cell.comment = copy(source_cell.comment)
+
+    if source_cell.hyperlink:
+        target_cell.hyperlink = source_cell.hyperlink
+
+
+def clear_merged_cells_in_range(
+    worksheet,
+    start_row: int,
+    end_row: int,
+) -> None:
+    for merged_range in list(worksheet.merged_cells.ranges):
+        if (
+            merged_range.min_row <= end_row
+            and merged_range.max_row >= start_row
+        ):
+            worksheet.unmerge_cells(
+                str(merged_range)
+            )
+
+
+def copy_header_merge_ranges(
+    source_ws,
+    target_ws,
+    source_header_end: int,
+    column_map: dict[int, int],
+) -> None:
+    for merged_range in source_ws.merged_cells.ranges:
+        if (
+            merged_range.min_row < 2
+            or merged_range.max_row > source_header_end
+        ):
+            continue
+
+        source_columns = list(
+            range(
+                merged_range.min_col,
+                merged_range.max_col + 1,
+            )
+        )
+        mapped_columns = [
+            column_map.get(col)
+            for col in source_columns
+        ]
+
+        if any(col is None for col in mapped_columns):
+            continue
+
+        mapped_columns = sorted(set(mapped_columns))
+        if (
+            mapped_columns
+            != list(range(
+                min(mapped_columns),
+                max(mapped_columns) + 1,
+            ))
+        ):
+            continue
+
+        target_range = (
+            f"{get_column_letter(min(mapped_columns))}"
+            f"{merged_range.min_row}:"
+            f"{get_column_letter(max(mapped_columns))}"
+            f"{merged_range.max_row}"
+        )
+
+        target_ws.merge_cells(target_range)
+
+
+def copy_column_dimensions(
+    source_ws,
+    target_ws,
+    column_map: dict[int, int],
+) -> None:
+    for source_col, target_col in column_map.items():
+        source_letter = get_column_letter(source_col)
+        target_letter = get_column_letter(target_col)
+        source_dim = source_ws.column_dimensions.get(
+            source_letter
+        )
+
+        if (
+            source_dim is None
+            or source_dim.width is None
+        ):
+            continue
+
+        target_ws.column_dimensions[
+            target_letter
+        ].width = source_dim.width
 
 
 def infer_template_data_start_row(

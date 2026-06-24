@@ -107,6 +107,7 @@ def main() -> None:
                 csv_dir,
                 xlsx_dir,
                 rows_by_raw_file,
+                datasets,
             )
 
             #
@@ -643,15 +644,16 @@ def export_csv_files(
     csv_dir: Path,
     xlsx_dir: Path,
     rows_by_file: dict[str, list[dict]],
+    datasets: dict[str, tuple[list[str], list[dict]]],
 ) -> None:
     # Convert the raw xlsx exports from xlsx_dir into CSV.
-    # This preserves the original CSV behavior and does not use the
-    # combined workbook output that may include header templates.
+    # Use MySQL dataset headers and rows whenever possible so CSV output
+    # is not influenced by template header rows in the workbook.
     csv_started_at = time.perf_counter()
 
     processed_files = set()
 
-    for xlsx_file_name in rows_by_file.keys():
+    for xlsx_file_name, mapping_rows in rows_by_file.items():
         if xlsx_file_name in processed_files:
             continue
 
@@ -674,10 +676,28 @@ def export_csv_files(
             f"{csv_file_name} ==="
         )
 
-        convert_xlsx_to_csv(
-            xlsx_path,
-            csv_path,
-        )
+        if len(mapping_rows) == 1:
+            database_name = text_value(
+                mapping_rows[0]["DATABASE NAME"]
+            )
+            dataset = datasets.get(database_name)
+
+            if dataset is not None:
+                write_csv_from_dataset(
+                    csv_path,
+                    dataset,
+                )
+            else:
+                convert_xlsx_to_csv(
+                    xlsx_path,
+                    csv_path,
+                )
+        else:
+            # Fall back to workbook-based conversion for multi-sheet raw workbooks.
+            convert_xlsx_to_csv(
+                xlsx_path,
+                csv_path,
+            )
 
         print(
             f"CSV file time: "
@@ -688,6 +708,38 @@ def export_csv_files(
         f"CSV files total: "
         f"{format_duration(time.perf_counter() - csv_started_at)}"
     )
+
+
+def write_csv_from_dataset(
+    csv_path: Path,
+    dataset: tuple[list[str], list[dict]],
+) -> None:
+    columns, rows = dataset
+    row_count = 0
+
+    with csv_path.open(
+        "w",
+        newline="",
+        encoding="utf-8-sig",
+    ) as csv_file:
+        writer = csv.writer(csv_file)
+
+        writer.writerow([
+            "" if column is None else str(column)
+            for column in columns
+        ])
+
+        row_count += 1
+
+        for row in rows:
+            writer.writerow([
+                "" if row.get(column) is None else str(row.get(column))
+                for column in columns
+            ])
+            row_count += 1
+
+    print(f"Rows: {row_count}")
+    print(f"Saved: {csv_path}")
 
 
 def force_text_and_autosize(worksheet, max_width: int = 150) -> None:
@@ -733,8 +785,8 @@ def force_text_and_autosize(worksheet, max_width: int = 150) -> None:
         letter = get_column_letter(col_index)
         worksheet.column_dimensions[letter].width = min(width + 4, max_width)
 
-    if column_widths:
-        print(f"Auto-sized {len(column_widths)} columns (max {max_width})")
+    # if column_widths:
+    #     print(f"Auto-sized {len(column_widths)} columns (max {max_width})")
 
 
 def finalize_worksheet_formatting(worksheet, start_row: int = 1, max_width: int = 150) -> None:
@@ -795,8 +847,8 @@ def finalize_worksheet_formatting(worksheet, start_row: int = 1, max_width: int 
     for col_index, width in column_widths.items():
         letter = get_column_letter(col_index)
         worksheet.column_dimensions[letter].width = min(width + 4, max_width)
-    if column_widths:
-        print(f"Auto-sized {len(column_widths)} columns (max {max_width})")
+    # if column_widths:
+    #     print(f"Auto-sized {len(column_widths)} columns (max {max_width})")
 
 
 def convert_xlsx_to_csv(

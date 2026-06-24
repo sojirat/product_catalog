@@ -148,8 +148,7 @@ def get_mapping_table_name() -> str:
     validate_identifier(table_name)
 
     return table_name
-
-
+ 
 def get_output_dir() -> Path:
     import os
 
@@ -789,6 +788,65 @@ def force_text_and_autosize(worksheet, max_width: int = 150) -> None:
     #     print(f"Auto-sized {len(column_widths)} columns (max {max_width})")
 
 
+def remove_first_row_for_template(worksheet) -> None:
+    """Remove the first row by shifting rows 2..N up one row.
+
+    This preserves merged ranges, styles and values by:
+    - collecting merged ranges that include or are below row 2,
+    - unmerging all ranges, copying cells from row r -> r-1 for r>=2,
+    - deleting the final row, and re-applying adjusted merged ranges.
+    """
+    from openpyxl.utils import get_column_letter
+
+    max_row = worksheet.max_row
+    max_col = worksheet.max_column
+
+    if max_row < 2:
+        return
+
+    # Collect merged ranges that should be shifted up
+    shifted = []
+    for mr in list(worksheet.merged_cells.ranges):
+        # Only consider merges that touch row 2 or below (header template area)
+        if mr.max_row >= 2:
+            new_min_row = max(1, mr.min_row - 1)
+            new_max_row = mr.max_row - 1
+            shifted.append((mr.min_col, mr.max_col, new_min_row, new_max_row))
+
+    # Unmerge all to make copying safe
+    for mr in list(worksheet.merged_cells.ranges):
+        try:
+            worksheet.unmerge_cells(str(mr))
+        except Exception:
+            pass
+
+    # Copy cells from row 2..max_row to row 1..max_row-1
+    for r in range(2, max_row + 1):
+        for c in range(1, max_col + 1):
+            src = worksheet.cell(row=r, column=c)
+            dst = worksheet.cell(row=r - 1, column=c)
+            copy_cell(src, dst)
+
+    # Delete the now-unused last row
+    try:
+        worksheet.delete_rows(max_row, 1)
+    except Exception:
+        pass
+
+    # Re-apply shifted merges
+    for min_col, max_col, min_row, max_row in shifted:
+        # validate range
+        if min_row <= max_row:
+            try:
+                worksheet.merge_cells(
+                    f"{get_column_letter(min_col)}{min_row}:{get_column_letter(max_col)}{max_row}"
+                )
+            except Exception:
+                pass
+
+    print("Removed first row for template sheet (shifted content up)")
+
+
 def finalize_worksheet_formatting(worksheet, start_row: int = 1, max_width: int = 150) -> None:
     """Apply final formatting to worksheet:
     - If row 1 is empty across all columns, delete it.
@@ -1059,6 +1117,11 @@ def write_dataset_to_template_worksheet(
 
     # Ensure all cells are text and autosized (safe operation)
     force_text_and_autosize(worksheet, max_width=150)
+
+    # For template-based exports, remove the first (helper) row used
+    # for matching column names so the final sheet starts with the
+    # template header rows (which begin at row 2).
+    remove_first_row_for_template(worksheet)
 
 
 def copy_header_rows_from_excel_header_template(

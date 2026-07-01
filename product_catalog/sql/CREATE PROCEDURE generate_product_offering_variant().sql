@@ -119,7 +119,7 @@ BEGIN
 				'        c.`rn`, ',
 				'        c.`Product ID`, ',
 				'        c.`SKU`, ',
-				'        clean_id(c.variant_base) AS variant_base, ',
+				'        REGEXP_REPLACE(clean_id(c.variant_base), ''_of_mg([0-9]+)'', ''-of_mg\\1'') AS variant_base, ',
 				'        c.char_id, ',
 				'        sc.`name`, ',
 				'        c.char_value, ',
@@ -197,15 +197,15 @@ BEGIN
     DROP TABLE IF EXISTS tbl_variant_wide;
 
 		-- Step 6: Create View
-   DROP VIEW IF EXISTS v_product_offering_variant;
+  DROP VIEW IF EXISTS v_product_offering_variant;
 	CREATE VIEW v_product_offering_variant AS
 	SELECT
-			CAST(`Product Id` AS CHAR)                                   AS `Product Id`,
-			CAST(`variantId` AS CHAR)                                    AS `variantId`,
-			CAST(`isAvailable` AS CHAR)                                  AS `isAvailable`,
-			CAST(`specCharacteristic.Characteristic Id` AS CHAR)         AS `specCharacteristics`,
-			CAST(`value` AS CHAR)                                        AS `value`,
-			CAST(`SKU` AS CHAR)                                          AS `sku`
+			CAST(`Product Id` AS CHAR)                                   AS `Product Variants.Product Id`,
+			CAST(`variantId` AS CHAR)                                    AS `Product Variants.variantId`,
+			CAST(`isAvailable` AS CHAR)                                  AS `Product Variants.isAvailable`,
+			CAST(`specCharacteristic.Characteristic Id` AS CHAR)         AS `Product Variants.specCharacteristics`,
+			CAST(`value` AS CHAR)                                        AS `Product Variants.value`,
+			CAST(`SKU` AS CHAR)                                          AS `Product Variants.sku`
 	FROM tbl_product_offering_variant
 	ORDER BY `rn`, `Product Id`, `variantId`;
 
@@ -214,4 +214,4 @@ BEGIN
 
 END$$
 
-DELIMITER ;
+DELIMITER;

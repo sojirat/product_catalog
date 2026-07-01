@@ -6,15 +6,15 @@ IF EXISTS clean_name$$ CREATE FUNCTION clean_name (val TEXT) RETURNS TEXT DETERM
         REGEXP_REPLACE(
             REGEXP_REPLACE(
                 REGEXP_REPLACE(
-                    REGEXP_REPLACE(
-                        IFNULL(val, ''),
-                        '[[:space:]_-]+', '_'
-                    ),
-                    '[^\\p{L}\\p{N}_]', ''
+                    IFNULL(val, ''),
+                    '[[:space:]_-]+',
+                    '_'
                 ),
-                '_+', '_'
+                '[^0-9A-Za-z_ก-๙]',
+                ''
             ),
-            '^_|_$', ''
+            '^_|_$',
+            ''
         ),
         ''
     );

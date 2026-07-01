@@ -57,9 +57,9 @@ BEGIN
     CREATE INDEX idx_tmp_product_id ON tmp_po_map(PRODUCT_ID(255));
     CREATE INDEX idx_tmp_po_id      ON tmp_po_map(PO_ID(255));
 
-    -- Step 2: GROUP price พร้อม deduplicate PRICE_MST
-    DROP TEMPORARY TABLE IF EXISTS tbl_product_offering_price_tmp;
-    CREATE TEMPORARY TABLE tbl_product_offering_price_tmp AS
+    -- Step 2 (raw): GROUP price ต่อ PO_ID พร้อม deduplicate PRICE_MST (เหมือนเดิม)
+    DROP TEMPORARY TABLE IF EXISTS tbl_po_price_grouped_raw;
+    CREATE TEMPORARY TABLE tbl_po_price_grouped_raw AS
     SELECT
         exp.PO_ID AS SRC_PO_ID,
         CONCAT_WS(' ',
@@ -102,9 +102,40 @@ BEGIN
         p.VAT_AMT,
         p.VAT_RATE;
 
-    -- Step 2b: Pre-Booking price จาก TR_DISCOUNT
-    DROP TEMPORARY TABLE IF EXISTS tbl_prebooking_price_tmp;
-    CREATE TEMPORARY TABLE tbl_prebooking_price_tmp AS
+    -- Step 2 (merge): ยุบแถวที่ PO_NAME / PRICE_GROUP / EXC_VAT / INC_VAT / VAT_AMT / VAT_RATE /
+    -- EFFECTIVE_DATE / EXPIRE_DATE เหมือนกันทุก field ให้เหลือ 1 แถว
+    -- พร้อมรวม SRC_PO_ID และ PRODUCT_ID เข้าด้วยกัน (PO_ID ค่อยไปรันใหม่ใน Step 7)
+    DROP TEMPORARY TABLE IF EXISTS tbl_product_offering_price_tmp;
+    CREATE TEMPORARY TABLE tbl_product_offering_price_tmp AS
+    SELECT
+        GROUP_CONCAT(DISTINCT r.SRC_PO_ID ORDER BY r.SRC_PO_ID SEPARATOR ', ') AS SRC_PO_ID,
+        r.PO_NAME,
+        r.PRICE_GROUP,
+        r.EXC_VAT,
+        r.INC_VAT,
+        r.VAT_AMT,
+        r.VAT_RATE,
+        r.EFFECTIVE_DATE,
+        r.EXPIRE_DATE,
+        GROUP_CONCAT(DISTINCT jt.pid ORDER BY jt.pid SEPARATOR ', ') AS PRODUCT_ID
+    FROM tbl_po_price_grouped_raw r
+    JOIN JSON_TABLE(
+        CONCAT('["', REPLACE(r.PRODUCT_ID, ', ', '","'), '"]'),
+        '$[*]' COLUMNS (pid VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci PATH '$')
+    ) jt ON TRUE
+    GROUP BY
+        r.PO_NAME,
+        r.PRICE_GROUP,
+        r.EXC_VAT,
+        r.INC_VAT,
+        r.VAT_AMT,
+        r.VAT_RATE,
+        r.EFFECTIVE_DATE,
+        r.EXPIRE_DATE;
+
+    -- Step 2b (raw): Pre-Booking price จาก TR_DISCOUNT ต่อ PO_ID (เหมือนเดิม)
+    DROP TEMPORARY TABLE IF EXISTS tbl_prebooking_price_raw;
+    CREATE TEMPORARY TABLE tbl_prebooking_price_raw AS
     SELECT
         pom.PO_ID                                                                       AS SRC_PO_ID,
         CONCAT_WS(' ',
@@ -149,6 +180,38 @@ BEGIN
         td.START_DATE,
         td.END_DATE;
 
+    -- Step 2b (merge): ยุบแถว Pre-Booking ที่ PO_NAME / PRICE_GROUP / EXC_VAT / INC_VAT /
+    -- VAT_AMT / VAT_RATE / EFFECTIVE_DATE / EXPIRE_DATE เหมือนกันทุก field ให้เหลือ 1 แถว
+    DROP TEMPORARY TABLE IF EXISTS tbl_prebooking_price_tmp;
+    CREATE TEMPORARY TABLE tbl_prebooking_price_tmp AS
+    SELECT
+        GROUP_CONCAT(DISTINCT r.SRC_PO_ID ORDER BY r.SRC_PO_ID SEPARATOR ', ') AS SRC_PO_ID,
+        r.PO_NAME,
+        r.PRICE_GROUP,
+        r.PRICE_TYPE,
+        r.EXC_VAT,
+        r.INC_VAT,
+        r.VAT_AMT,
+        r.VAT_RATE,
+        r.EFFECTIVE_DATE,
+        r.EXPIRE_DATE,
+        GROUP_CONCAT(DISTINCT jt.pid ORDER BY jt.pid SEPARATOR ', ') AS PRODUCT_ID
+    FROM tbl_prebooking_price_raw r
+    JOIN JSON_TABLE(
+        CONCAT('["', REPLACE(r.PRODUCT_ID, ', ', '","'), '"]'),
+        '$[*]' COLUMNS (pid VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci PATH '$')
+    ) jt ON TRUE
+    GROUP BY
+        r.PO_NAME,
+        r.PRICE_GROUP,
+        r.PRICE_TYPE,
+        r.EXC_VAT,
+        r.INC_VAT,
+        r.VAT_AMT,
+        r.VAT_RATE,
+        r.EFFECTIVE_DATE,
+        r.EXPIRE_DATE;
+
     -- Step 3: สร้าง tbl_product_offering_price ถ้ายังไม่มี
     CREATE TABLE IF NOT EXISTS tbl_product_offering_price (
         `PO_ID`          VARCHAR(500),
@@ -173,16 +236,18 @@ BEGIN
         INDEX idx_src_key (`SRC_PO_ID`(255), `PRICE_GROUP`, `EXC_VAT`)
     );
 
-    -- Step 4: หา Onetime rows ใหม่
+    -- Step 4: หา Onetime rows ใหม่ (match ด้วย PO_NAME + PRICE_GROUP + EXC_VAT
+    -- เพื่อให้ทนต่อกรณี SRC_PO_ID ยุบรวม/แตกต่างกันไปในแต่ละรอบรัน)
     DROP TEMPORARY TABLE IF EXISTS tbl_price_new_rows;
     CREATE TEMPORARY TABLE tbl_price_new_rows AS
     SELECT t.*
     FROM tbl_product_offering_price_tmp t
     LEFT JOIN tbl_product_offering_price e
-        ON  e.SRC_PO_ID   COLLATE utf8mb4_general_ci = t.SRC_PO_ID  COLLATE utf8mb4_general_ci
+        ON  e.PO_NAME      COLLATE utf8mb4_general_ci = t.PO_NAME     COLLATE utf8mb4_general_ci
         AND e.PRICE_GROUP  COLLATE utf8mb4_general_ci = t.PRICE_GROUP COLLATE utf8mb4_general_ci
         AND e.EXC_VAT = t.EXC_VAT
-    WHERE e.SRC_PO_ID IS NULL;
+        AND e.PRICE_TYPE = 'Onetime'
+    WHERE e.PO_NAME IS NULL;
 
     SELECT COUNT(*) INTO v_new_count FROM tbl_price_new_rows;
 
@@ -192,11 +257,11 @@ BEGIN
     SELECT t.*
     FROM tbl_prebooking_price_tmp t
     LEFT JOIN tbl_product_offering_price e
-        ON  e.SRC_PO_ID   COLLATE utf8mb4_general_ci = t.SRC_PO_ID  COLLATE utf8mb4_general_ci
+        ON  e.PO_NAME      COLLATE utf8mb4_general_ci = t.PO_NAME     COLLATE utf8mb4_general_ci
         AND e.PRICE_GROUP  COLLATE utf8mb4_general_ci = t.PRICE_GROUP COLLATE utf8mb4_general_ci
         AND e.EXC_VAT      = t.EXC_VAT
         AND e.PRICE_TYPE   = 'Pre-Booking'
-    WHERE e.SRC_PO_ID IS NULL;
+    WHERE e.PO_NAME IS NULL;
 
     SELECT COUNT(*) INTO v_pb_new_count FROM tbl_prebooking_new_rows;
 
@@ -210,14 +275,15 @@ BEGIN
         );
     END IF;
 
-    -- Step 6: Update Onetime rows ที่มีอยู่แล้ว
+    -- Step 6: Update Onetime rows ที่มีอยู่แล้ว (match ด้วย PO_NAME + PRICE_GROUP + EXC_VAT)
     UPDATE tbl_product_offering_price e
     JOIN tbl_product_offering_price_tmp t
-        ON  e.SRC_PO_ID   COLLATE utf8mb4_general_ci = t.SRC_PO_ID  COLLATE utf8mb4_general_ci
+        ON  e.PO_NAME      COLLATE utf8mb4_general_ci = t.PO_NAME     COLLATE utf8mb4_general_ci
         AND e.PRICE_GROUP  COLLATE utf8mb4_general_ci = t.PRICE_GROUP COLLATE utf8mb4_general_ci
         AND e.EXC_VAT = t.EXC_VAT
+        AND e.PRICE_TYPE = 'Onetime'
     SET
-        e.PO_NAME        	= t.PO_NAME,
+        e.SRC_PO_ID      	= t.SRC_PO_ID,
         e.INC_VAT        	= t.INC_VAT,
         e.VAT_AMT        	= t.VAT_AMT,
         e.VAT_RATE       	= t.VAT_RATE,
@@ -231,12 +297,12 @@ BEGIN
     -- Step 6b: Update Pre-Booking rows ที่มีอยู่แล้ว
     UPDATE tbl_product_offering_price e
     JOIN tbl_prebooking_price_tmp t
-        ON  e.SRC_PO_ID   COLLATE utf8mb4_general_ci = t.SRC_PO_ID  COLLATE utf8mb4_general_ci
+        ON  e.PO_NAME      COLLATE utf8mb4_general_ci = t.PO_NAME     COLLATE utf8mb4_general_ci
         AND e.PRICE_GROUP  COLLATE utf8mb4_general_ci = t.PRICE_GROUP COLLATE utf8mb4_general_ci
         AND e.EXC_VAT      = t.EXC_VAT
         AND e.PRICE_TYPE   = 'Pre-Booking'
     SET
-        e.PO_NAME        	= t.PO_NAME,
+        e.SRC_PO_ID      	= t.SRC_PO_ID,
         e.INC_VAT        	= t.INC_VAT,
         e.VAT_AMT        	= t.VAT_AMT,
         e.VAT_RATE       	= t.VAT_RATE,
@@ -247,7 +313,7 @@ BEGIN
         e.updated_by     	= v_actor,
         e.updated_at     	= NOW(3);
 
-    -- Step 7: Insert Onetime rows ใหม่
+    -- Step 7: Insert Onetime rows ใหม่ (รัน PO_ID ใหม่ตอนนี้)
     SET @v_rn = v_of_start - 1;
 
     INSERT INTO tbl_product_offering_price
@@ -270,7 +336,7 @@ BEGIN
         PRODUCT_ID,
         batch_id, v_actor, NOW(3)
     FROM tbl_price_new_rows
-    ORDER BY SRC_PO_ID, PRICE_GROUP, EXC_VAT;
+    ORDER BY PO_NAME, PRICE_GROUP, EXC_VAT;
 
     -- Step 7b: Insert Pre-Booking rows ใหม่ (@v_rn ต่อจาก Onetime)
     INSERT INTO tbl_product_offering_price
@@ -296,7 +362,7 @@ BEGIN
         PRODUCT_ID,
         batch_id, v_actor, NOW(3)
     FROM tbl_prebooking_new_rows
-    ORDER BY SRC_PO_ID, PRICE_GROUP, EXC_VAT;
+    ORDER BY PO_NAME, PRICE_GROUP, EXC_VAT;
 
     COMMIT;
 
@@ -358,13 +424,17 @@ BEGIN
 		DROP VIEW IF EXISTS v_product_offering_with_product_offering_price;
 		CREATE VIEW v_product_offering_with_product_offering_price AS
 		SELECT
-				CAST(po.PO_ID AS CHAR)                                                 AS `Product Offer ID`,
-				CAST(pop.PO_NAME AS CHAR)                                              AS `Product Offer Price Name`,
-				CAST(pop.PO_ID AS CHAR)                                                AS `Product Offer Price ID`
-		FROM tbl_product_offering po
-		LEFT JOIN tbl_product_offering_price pop
-				ON pop.SRC_PO_ID = po.PO_ID
-		ORDER BY po.rn, pop.PO_ID;
+				CAST(po.PO_ID AS CHAR)    AS `Product Offer ID`,
+				CAST(pop.PO_NAME AS CHAR) AS `Product Offer Price Name`,
+				CAST(pop.PO_ID AS CHAR)   AS `Product Offer Price ID`
+		FROM tbl_product_offering_price pop
+		JOIN JSON_TABLE(
+				CONCAT('["', REPLACE(pop.SRC_PO_ID, ', ', '","'), '"]'),
+				'$[*]' COLUMNS (src_po_id TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci PATH '$')
+		) jt ON TRUE
+		LEFT JOIN tbl_product_offering po
+				ON po.PO_ID COLLATE utf8mb4_general_ci = jt.src_po_id
+		ORDER BY pop.PO_ID, po.rn IS NULL, po.rn;
 
 
 		DROP VIEW IF EXISTS v_product_offering_variant_product_offering_price;
@@ -374,7 +444,7 @@ BEGIN
 				CAST(pop.PO_ID AS CHAR)                                                AS `variantProductOfferingPrice.productOfferingPrice`
 		FROM tbl_product_offering_price pop
 		LEFT JOIN tbl_product_offering_variant pov
-				ON pov.`Product Id` = pop.SRC_PO_ID
+				ON FIND_IN_SET(pov.`Product Id`, REPLACE(pop.SRC_PO_ID, ', ', ',')) > 0
 		ORDER BY pop.PO_ID, pov.variantId;
 
     -- Step 9: Return result

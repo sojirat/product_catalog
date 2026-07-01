@@ -3,6 +3,7 @@ import re
 import time
 from pathlib import Path
 
+from product_catalog.export_template_mapping import BASE_DIR
 from sql_runner import split_mysql_script
 from translation import (
     IdTranslator,
@@ -14,17 +15,7 @@ from translation import (
     table_exists,
     translate_po_id,
     translate_variant_id,
-)
-
-
-BASE_DIR = Path(__file__).resolve().parent
-
-PO_JOB = TranslationJob(
-    name="Translate Product Offering PO_ID",
-    table_name="tbl_product_offering",
-    id_column="PO_ID",
-    original_column="PO_ID_ORIGINAL",
-    transform=translate_po_id,
+    translate_promotion_id,
 )
 
 VARIANT_JOB = TranslationJob(
@@ -40,6 +31,7 @@ PROMOTION_JOB = TranslationJob(
     table_name="tbl_promotion",
     id_column="PROMOTION_ID",
     original_column="PROMOTION_ID_ORIGINAL",
+    transform=translate_promotion_id,
 )
 
 
@@ -157,6 +149,7 @@ def reset_and_load_product_mst(cursor, connection, database_name: str, run_confi
             "DROP TABLE IF EXISTS tbl_product_offering_variant_unpivot",
             "DROP TABLE IF EXISTS tbl_product_offering_price",
             "DROP TABLE IF EXISTS tbl_promotion",
+            "DROP TABLE IF EXISTS tbl_campaign_master",
             "DROP TABLE IF EXISTS tbl_contract_master",
             "DROP TABLE IF EXISTS generate_all_log",
             "DROP TABLE IF EXISTS ingest_batch_detail",
@@ -345,7 +338,6 @@ def run_generate_flow(
         translator,
         database_name,
     )
-
     measure(
         timings,
         "07_generate_product_offering_price",
@@ -374,7 +366,6 @@ def run_generate_flow(
         translator,
         database_name,
     )
-
     measure(
         timings,
         "10_generate_contract_master",
@@ -383,6 +374,24 @@ def run_generate_flow(
         connection,
         "generate_contract_master",
         (batch_id, actor, 0),
+    )
+    measure(
+        timings,
+        "11_generate_campaign_master",
+        call_procedure,
+        cursor,
+        connection,
+        "generate_campaign_master",
+        (batch_id, actor, 0),
+    )
+    measure(
+        timings,
+        "12_generate_lov",
+        call_procedure,
+        cursor,
+        connection,
+        "generate_lov",
+        (),
     )
 
 

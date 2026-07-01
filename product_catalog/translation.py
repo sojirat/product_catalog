@@ -1,3 +1,4 @@
+import json
 import os
 import re
 from dataclasses import dataclass
@@ -8,6 +9,7 @@ from typing import Callable
 THAI_TEXT_PATTERN = re.compile(r"[ก-๙]")
 SAFE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
 SEQUENCE_TOKEN_PATTERN = re.compile(r"^([A-Za-z]+)(\d+)$")
+TRANSLATION_CACHE_FILE = Path(__file__).parent.parent / ".translation_cache.json"
 
 
 @dataclass(frozen=True)
@@ -51,8 +53,29 @@ class IdTranslator:
         from deep_translator import GoogleTranslator
 
         self.translator = GoogleTranslator(source=source, target=target)
-        self.cache: dict[str, str] = {}
+        self.cache: dict[str, str] = self._load_cache()
         self.sequence_rules: list[SequenceRule] = []
+
+    def _load_cache(self) -> dict[str, str]:
+        """Load translation cache from disk."""
+        if not TRANSLATION_CACHE_FILE.exists():
+            return {}
+        
+        try:
+            return json.loads(TRANSLATION_CACHE_FILE.read_text(encoding="utf-8"))
+        except Exception as error:
+            print(f"Warning: Failed to load translation cache: {error}")
+            return {}
+
+    def _save_cache(self) -> None:
+        """Save translation cache to disk."""
+        try:
+            TRANSLATION_CACHE_FILE.write_text(
+                json.dumps(self.cache, ensure_ascii=False, indent=2),
+                encoding="utf-8"
+            )
+        except Exception as error:
+            print(f"Warning: Failed to save translation cache: {error}")
 
     def translate_id(self, value: str) -> str:
         parts = value.split("_")
@@ -74,6 +97,7 @@ class IdTranslator:
             return text
 
         self.cache[text] = translated
+        self._save_cache()
         return translated
 
 
@@ -185,10 +209,36 @@ def translate_po_id(value: str, translator: IdTranslator) -> str:
     return normalize_sequence_parts(translated, translator.sequence_rules)
 
 
+def rewrite_sequence_suffix_segments(value: str, rules: list[SequenceRule]) -> str:
+    """Rewrite _<suffix>NNN to -<suffix>NNN for sequence suffixes loaded from sequence_registry."""
+    suffixes = []
+    for rule in rules:
+        if not rule.suffix or not rule.suffix.startswith("-"):
+            continue
+
+        suffix_base = rule.suffix[1:]
+        if suffix_base.endswith("mg"):
+            suffixes.append(suffix_base)
+
+    if not suffixes:
+        return value
+
+    unique_suffixes = sorted(set(suffixes), key=len, reverse=True)
+    pattern = "|".join(re.escape(suffix) for suffix in unique_suffixes)
+    return re.sub(rf"_((?:{pattern}))(?=\d+)", r"-\1", value)
+
+
+def translate_promotion_id(value: str, translator: IdTranslator) -> str:
+    translated = translator.translate_id(value)
+    translated = rewrite_sequence_suffix_segments(translated, translator.sequence_rules)
+    return normalize_sequence_parts(translated, translator.sequence_rules)
+
+
 def translate_variant_id(value: str, translator: IdTranslator) -> str:
     parts = value.split("_")
     translated_parts = [translate_variant_part(part, translator) for part in parts]
     translated = "_".join(translated_parts)
+    translated = rewrite_sequence_suffix_segments(translated, translator.sequence_rules)
     return normalize_sequence_parts(translated, translator.sequence_rules)
 
 
@@ -324,7 +374,7 @@ def run_translation_job(
 
     translator.sequence_rules = load_sequence_rules(cursor, database_name)
     ensure_original_column(cursor, connection, database_name, job)
-    rows = fetch_rows(cursor, job)
+    rows = fetch_rows(cursor, job, translator)
 
     print(f"Found {len(rows)} rows")
 
@@ -418,13 +468,42 @@ def load_sequence_rules(cursor, database_name: str) -> list[SequenceRule]:
     return [rule for rule in rules if rule.padding > 0]
 
 
-def fetch_rows(cursor, job: TranslationJob) -> list[dict]:
-    sql_select = f"""
-        SELECT {job.id_column}
-        FROM {job.table_name}
-        WHERE {job.id_column} REGEXP '[ก-๙]'
-          AND {job.original_column} IS NULL
-    """
+def fetch_rows(cursor, job: TranslationJob, translator: IdTranslator) -> list[dict]:
+    suffixes = []
+    for rule in translator.sequence_rules:
+        if not rule.suffix or not rule.suffix.startswith("-"):
+            continue
+
+        suffix_base = rule.suffix[1:]
+        if suffix_base.endswith("mg"):
+            suffixes.append(suffix_base)
+
+    if suffixes:
+        unique_suffixes = sorted(set(suffixes), key=len, reverse=True)
+        suffix_pattern = "|".join(re.escape(s) for s in unique_suffixes)
+        sql_select = f"""
+            SELECT {job.id_column}
+            FROM {job.table_name}
+            WHERE {job.original_column} IS NULL
+              AND (
+                    {job.id_column} REGEXP '[ก-๙]'
+                 OR (
+                        {job.id_column} REGEXP '_(?:{suffix_pattern})[0-9]+'
+                    AND {job.id_column} NOT REGEXP '-(?:{suffix_pattern})[0-9]+'
+                    )
+              )
+        """
+    else:
+        sql_select = f"""
+            SELECT {job.id_column}
+            FROM {job.table_name}
+            WHERE {job.original_column} IS NULL
+              AND (
+                    {job.id_column} REGEXP '[ก-๙]'
+                 OR {job.id_column} REGEXP '_of_mg[0-9]+'
+              )
+        """
+
     cursor.execute(sql_select)
     return cursor.fetchall()
 

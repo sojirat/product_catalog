@@ -686,17 +686,28 @@ def export_csv_files(
                     csv_path,
                     dataset,
                 )
-            else:
+            elif xlsx_path.exists():
                 convert_xlsx_to_csv(
                     xlsx_path,
                     csv_path,
                 )
+            else:
+                print(
+                    f"Skip missing workbook and dataset: "
+                    f"{xlsx_file_name}"
+                )
         else:
             # Fall back to workbook-based conversion for multi-sheet raw workbooks.
-            convert_xlsx_to_csv(
-                xlsx_path,
-                csv_path,
-            )
+            if xlsx_path.exists():
+                convert_xlsx_to_csv(
+                    xlsx_path,
+                    csv_path,
+                )
+            else:
+                print(
+                    f"Skip missing workbook: "
+                    f"{xlsx_file_name}"
+                )
 
         print(
             f"CSV file time: "
@@ -763,22 +774,21 @@ def force_text_and_autosize(worksheet, max_width: int = 150) -> None:
     except Exception:
         MergedCell = None
 
-    for row in worksheet.iter_rows(min_row=1, max_row=worksheet.max_row):
-        for cell in row:
-            text = "" if cell.value is None else str(cell.value)
-            col_index = cell.column
-            width = max(1, wcswidth(text))
-            prev = column_widths.get(col_index, 0)
-            column_widths[col_index] = max(prev, min(width, max_width))
+    for cell in list(worksheet._cells.values()):
+        if MergedCell is not None and isinstance(cell, MergedCell):
+            continue
 
-            if MergedCell is not None and isinstance(cell, MergedCell):
-                continue
+        text = "" if cell.value is None else str(cell.value)
+        col_index = cell.column
+        width = max(1, wcswidth(text))
+        prev = column_widths.get(col_index, 0)
+        column_widths[col_index] = max(prev, min(width, max_width))
 
-            try:
-                cell.data_type = "s"
-                cell.number_format = "@"
-            except Exception:
-                pass
+        try:
+            cell.data_type = "s"
+            cell.number_format = "@"
+        except Exception:
+            pass
 
     for col_index, width in column_widths.items():
         letter = get_column_letter(col_index)
@@ -1115,13 +1125,10 @@ def write_dataset_to_template_worksheet(
         include_header=False,
     )
 
-    # Ensure all cells are text and autosized (safe operation)
-    force_text_and_autosize(worksheet, max_width=150)
+    format_merged_range_borders(worksheet)
 
-    # For template-based exports, remove the first (helper) row used
-    # for matching column names so the final sheet starts with the
-    # template header rows (which begin at row 2).
-    remove_first_row_for_template(worksheet)
+    # Ensure existing cells are text and autosized (safe operation)
+    force_text_and_autosize(worksheet, max_width=150)
 
 
 def copy_header_rows_from_excel_header_template(
@@ -1168,18 +1175,19 @@ def copy_header_rows_from_excel_header_template(
 
     clear_rows_from(
         worksheet,
-        2,
+        1,
     )
     clear_merged_cells_in_range(
         worksheet,
-        2,
-        source_header_end,
+        1,
+        source_header_end - 1,
     )
 
     for source_row in range(2, source_header_end + 1):
+        target_row = source_row - 1
         row_dim = source_ws.row_dimensions.get(source_row)
         if row_dim is not None and row_dim.height is not None:
-            worksheet.row_dimensions[source_row].height = (
+            worksheet.row_dimensions[target_row].height = (
                 row_dim.height
             )
 
@@ -1189,7 +1197,7 @@ def copy_header_rows_from_excel_header_template(
                 column=source_col,
             )
             target_cell = worksheet.cell(
-                row=source_row,
+                row=target_row,
                 column=target_col,
             )
 
@@ -1207,7 +1215,7 @@ def copy_header_rows_from_excel_header_template(
         column_map,
     )
 
-    return source_header_end + 1
+    return source_header_end
 
 
 def build_header_column_map(
@@ -1339,14 +1347,25 @@ def copy_header_merge_ranges(
         ):
             continue
 
+        target_min_row = merged_range.min_row - 1
+        target_max_row = merged_range.max_row - 1
+
+        if target_min_row < 1:
+            continue
+
         target_range = (
             f"{get_column_letter(min(mapped_columns))}"
-            f"{merged_range.min_row}:"
+            f"{target_min_row}:"
             f"{get_column_letter(max(mapped_columns))}"
-            f"{merged_range.max_row}"
+            f"{target_max_row}"
         )
 
         target_ws.merge_cells(target_range)
+
+
+def format_merged_range_borders(worksheet) -> None:
+    for merged_range in worksheet.merged_cells.ranges:
+        merged_range.format()
 
 
 def copy_column_dimensions(
@@ -1414,11 +1433,13 @@ def write_dataset_rows(
             columns,
             start=1,
         ):
-            worksheet.cell(
+            cell = worksheet.cell(
                 row_index,
                 column_index,
                 column,
             )
+            cell.data_type = "s"
+            cell.number_format = "@"
 
         row_index += 1
 
@@ -1429,11 +1450,18 @@ def write_dataset_rows(
             columns,
             start=1,
         ):
-            worksheet.cell(
+            text = excel_text_value(row[column])
+
+            if text == "":
+                continue
+
+            cell = worksheet.cell(
                 row_index,
                 column_index,
-                excel_text_value(row[column]),
+                text,
             )
+            cell.data_type = "s"
+            cell.number_format = "@"
 
         row_index += 1
         row_count += 1

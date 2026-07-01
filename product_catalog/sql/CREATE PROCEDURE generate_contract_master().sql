@@ -289,7 +289,7 @@ proc_label: BEGIN
     CREATE VIEW v_master_meta_contract_master AS
     SELECT
 				CAST(BM_ENTITY_TYPE_CONTRACT AS CHAR)    AS `BM Entity Type`,
-        CAST(META_EXTENSION_ID AS CHAR)    AS `Meta Extension ID`,
+        CAST(META_EXTENSION_ID AS CHAR)    AS `MetaExtensionID`,
         CAST(EXTENSION_NAME AS CHAR)       AS `Name`,
         'contractMaster'						       AS `Extension Type`,
        COALESCE(

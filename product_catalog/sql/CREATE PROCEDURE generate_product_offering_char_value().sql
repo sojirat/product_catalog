@@ -598,23 +598,25 @@ BEGIN
 
    CREATE OR REPLACE VIEW v_product_offering_char_value AS
 		SELECT
-				CAST(`Char Value.Product Offer ID` AS CHAR)                         AS `Char Value.Product Offer ID`,
-				CAST(`Char Value.Product Spec ID` AS CHAR)                          AS `Char Value.Product Spec ID`,
-				CAST(`Char Value.Product Offer Characteristics ID` AS CHAR)         AS `SpecCharacteristic.Characteristics ID`,
-				CAST(`Char Value.Product Offer Characteristics Name` AS CHAR)       AS `Char Value.Product Offer Charactristics Name`,
-				CAST(`Char Value.valueType` AS CHAR)                                AS `Char Value.valueType`,
-				CAST(`Char Value.value` AS CHAR)                                    AS `Char Value.value`,
-				CAST(`Char Value.Default` AS CHAR)                                  AS `Char Value.isDefault`
-		FROM tbl_product_offering_char_value
-		ORDER BY `rn`;
+				CAST(pocv.`Char Value.Product Offer ID` AS CHAR)                         AS `Char Value.Product Offer ID`,
+				CAST(pocv.`Char Value.Product Spec ID` AS CHAR)                          AS `Char Value.Product Spec ID`,
+				CAST(ps.`name` AS CHAR)                        													 AS `Char Value.Product Spec Name`,
+				CAST(pocv.`Char Value.Product Offer Characteristics ID` AS CHAR)         AS `Char Value.Product Offer Characteristics ID`,
+				CAST(pocv.`Char Value.Product Offer Characteristics Name` AS CHAR)       AS `Char Value.Product Offer Characteristics Name`,
+				CAST(pocv.`Char Value.valueType` AS CHAR)                                AS `Char Value.valueType`,
+				CAST(pocv.`Char Value.value` AS CHAR)                                    AS `Char Value.value`,
+				CAST(pocv.`Char Value.Default` AS CHAR)                                  AS `Char Value.isDefault`
+		FROM tbl_product_offering_char_value pocv
+		JOIN product_specification ps ON ps.`Spec ID` = pocv.`Char Value.Product Spec ID`
+		ORDER BY pocv.`rn`;
 		
 		CREATE OR REPLACE VIEW v_product_offering_meta_extension_material_info AS
 		SELECT
 				'Product Offer Extension'                                              AS `BM Entity Type`,
-				'materialInfo'                                                         AS `Extension Type`,
 				CAST(t.`Char Value.Product Offer ID` AS CHAR)                          AS `Product Offer ID`,
-				'Residence'                                                            AS `marketSegment`,
 				'Material Details'                                                     AS `Name`,
+				'materialInfo'                                                         AS `Extension Type`,
+				'Residence'                                                            AS `marketSegment`,
 				'All'                                                                  AS `Channels`,
 				CAST(NULL AS CHAR)                                                     AS `Languages`,
 				CAST(c.company AS CHAR)                                                AS `company`,

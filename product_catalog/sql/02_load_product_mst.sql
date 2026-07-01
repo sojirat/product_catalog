@@ -4,7 +4,7 @@
 --          แล้วแบ่งเป็น INSERT / UPDATE / UNCHANGED พร้อม audit trail ครบถ้วน
 --
 -- FLOW:
---   stg_product_mst → hash → เปรียบ → INSERT/UPDATE/UNCHANGED
+--   stg_product_mst → clean → hash → เปรียบ → INSERT/UPDATE/UNCHANGED
 --   → ingest_batch + ingest_batch_detail → generate_all() ถ้ามี downstream
 --
 -- HOW TO USE:
@@ -25,6 +25,14 @@
 --   - เปลี่ยน INDEX ใน tmp_stg_hashed จาก MAT_CODE → PRODUCT_ID
 --   - เพิ่ม INSERT IGNORE ใน STEP 4 กัน duplicate กรณี race condition
 --   - เพิ่ม guard ใน EXIT HANDLER (IF v_batch_id > 0) กัน UPDATE ไม่เจอ row
+--
+-- FIX (2026-06-30):
+--   - เพิ่ม FUNCTION clean_name_raw() (แก้ bug "DELIMITER;" → "DELIMITER ;" ที่จะทำให้
+--     สคริปต์รันไม่ผ่าน, และเพิ่มขั้นตอนลบสระ/วรรณยุกต์นำหน้าข้อความ)
+--   - STEP 1: TRIM + UPPER + clean_name_raw() ให้กับ MAIN_MODEL, COMMERCIAL_NAME,
+--     SAP_DESCRIPTION, BRAND, COMPANY, GRADE, COLOR, CAPACITY, MODEL, UNIT_NAME
+--     ก่อนเก็บลง tmp_stg_hashed และก่อนคำนวณ new_hash (เพื่อให้ hash สะท้อนค่า
+--     ที่ clean แล้วจริง ๆ ไม่งั้น UPDATE/UNCHANGED detection จะผิดเพี้ยน)
 -- =============================================================================
 
 DELIMITER $$
@@ -78,6 +86,7 @@ proc_label: BEGIN
     -- STEP 1: คำนวณ hash ใน staging
     --         CONVERT ทุก string column ให้ตรง collation กับ PRODUCT_MST
     --         เพื่อหลีกเลี่ยง "Illegal mix of collations"
+    --         + clean_name_raw()/TRIM/UPPER กับคอลัมน์ที่กำหนด ก่อนเก็บและก่อน hash
     -- ================================================================
     DROP TEMPORARY TABLE IF EXISTS tmp_stg_hashed;
     CREATE TEMPORARY TABLE tmp_stg_hashed (
@@ -130,14 +139,15 @@ proc_label: BEGIN
         CONVERT(s.PK              USING utf8mb4) COLLATE utf8mb4_general_ci,
         CONVERT(s.PRODUCT_ID      USING utf8mb4) COLLATE utf8mb4_general_ci,
         CONVERT(s.MAT_CODE        USING utf8mb4) COLLATE utf8mb4_general_ci,
-        CONVERT(s.MAIN_MODEL      USING utf8mb4) COLLATE utf8mb4_general_ci,
-        CONVERT(s.COMMERCIAL_NAME USING utf8mb4) COLLATE utf8mb4_general_ci,
-        CONVERT(s.SAP_DESCRIPTION USING utf8mb4) COLLATE utf8mb4_general_ci,
-        CONVERT(s.BRAND           USING utf8mb4) COLLATE utf8mb4_general_ci,
-        CONVERT(s.COMPANY         USING utf8mb4) COLLATE utf8mb4_general_ci,
-        CONVERT(s.GRADE           USING utf8mb4) COLLATE utf8mb4_general_ci,
-        CONVERT(s.COLOR           USING utf8mb4) COLLATE utf8mb4_general_ci,
-        CONVERT(s.CAPACITY        USING utf8mb4) COLLATE utf8mb4_general_ci,
+        -- FIX: clean_name_raw + TRIM + UPPER สำหรับคอลัมน์ที่ต้อง clean
+        UPPER(TRIM(clean_name_raw(CONVERT(s.MAIN_MODEL      USING utf8mb4)))) COLLATE utf8mb4_general_ci,
+        UPPER(TRIM(clean_name_raw(CONVERT(s.COMMERCIAL_NAME USING utf8mb4)))) COLLATE utf8mb4_general_ci,
+        UPPER(TRIM(clean_name_raw(CONVERT(s.SAP_DESCRIPTION USING utf8mb4)))) COLLATE utf8mb4_general_ci,
+        UPPER(TRIM(clean_name_raw(CONVERT(s.BRAND           USING utf8mb4)))) COLLATE utf8mb4_general_ci,
+        UPPER(TRIM(clean_name_raw(CONVERT(s.COMPANY         USING utf8mb4)))) COLLATE utf8mb4_general_ci,
+        UPPER(TRIM(clean_name_raw(CONVERT(s.GRADE           USING utf8mb4)))) COLLATE utf8mb4_general_ci,
+        UPPER(TRIM(clean_name_raw(CONVERT(s.COLOR           USING utf8mb4)))) COLLATE utf8mb4_general_ci,
+        UPPER(TRIM(clean_name_raw(CONVERT(s.CAPACITY        USING utf8mb4)))) COLLATE utf8mb4_general_ci,
         CONVERT(s.PRODUCT_TYPE    USING utf8mb4) COLLATE utf8mb4_general_ci,
         CONVERT(s.PRODUCT_SUBTYPE USING utf8mb4) COLLATE utf8mb4_general_ci,
         CONVERT(s.CATEGORY        USING utf8mb4) COLLATE utf8mb4_general_ci,
@@ -145,8 +155,8 @@ proc_label: BEGIN
         CONVERT(s.ACT_TYPE        USING utf8mb4) COLLATE utf8mb4_general_ci,
         CONVERT(s.ACTIVE_FLAG     USING utf8mb4) COLLATE utf8mb4_general_ci,
         CONVERT(s.MAT_TYPE        USING utf8mb4) COLLATE utf8mb4_general_ci,
-        CONVERT(s.MODEL           USING utf8mb4) COLLATE utf8mb4_general_ci,
-        CONVERT(s.UNIT_NAME       USING utf8mb4) COLLATE utf8mb4_general_ci,
+        UPPER(TRIM(clean_name_raw(CONVERT(s.MODEL            USING utf8mb4)))) COLLATE utf8mb4_general_ci,
+        UPPER(TRIM(clean_name_raw(CONVERT(s.UNIT_NAME        USING utf8mb4)))) COLLATE utf8mb4_general_ci,
         CONVERT(s.CREATED_BY      USING utf8mb4) COLLATE utf8mb4_general_ci,
         CONVERT(s.DATE_CREATED    USING utf8mb4) COLLATE utf8mb4_general_ci,
         CONVERT(s.LAST_UPDATED    USING utf8mb4) COLLATE utf8mb4_general_ci,
@@ -168,17 +178,18 @@ proc_label: BEGIN
         CONVERT(s.OLD_MAT_NO      USING utf8mb4) COLLATE utf8mb4_general_ci,
         s.EFFECTIVE_DATE,
         s.EXPIRE_DATE,
+        -- FIX: hash ต้องคำนวณจากค่าที่ clean แล้ว (เหมือนค่าที่จะถูกเก็บจริง)
         SHA2(CONCAT_WS('||',
             IFNULL(s.PRODUCT_ID,         ''),
             IFNULL(s.MAT_CODE,           ''),
-            IFNULL(s.MAIN_MODEL,         ''),
-            IFNULL(s.COMMERCIAL_NAME,    ''),
-            IFNULL(s.SAP_DESCRIPTION,    ''),
-            IFNULL(s.BRAND,              ''),
-            IFNULL(s.COMPANY,            ''),
-            IFNULL(s.GRADE,              ''),
-            IFNULL(s.COLOR,              ''),
-            IFNULL(s.CAPACITY,           ''),
+            IFNULL(UPPER(TRIM(clean_name_raw(s.MAIN_MODEL))),      ''),
+            IFNULL(UPPER(TRIM(clean_name_raw(s.COMMERCIAL_NAME))), ''),
+            IFNULL(UPPER(TRIM(clean_name_raw(s.SAP_DESCRIPTION))), ''),
+            IFNULL(UPPER(TRIM(clean_name_raw(s.BRAND))),           ''),
+            IFNULL(UPPER(TRIM(clean_name_raw(s.COMPANY))),         ''),
+            IFNULL(UPPER(TRIM(clean_name_raw(s.GRADE))),           ''),
+            IFNULL(UPPER(TRIM(clean_name_raw(s.COLOR))),           ''),
+            IFNULL(UPPER(TRIM(clean_name_raw(s.CAPACITY))),        ''),
             IFNULL(s.PRODUCT_TYPE,       ''),
             IFNULL(s.PRODUCT_SUBTYPE,    ''),
             IFNULL(s.CATEGORY,           ''),

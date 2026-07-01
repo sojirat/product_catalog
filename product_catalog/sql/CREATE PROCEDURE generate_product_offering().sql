@@ -136,56 +136,79 @@ proc_label: BEGIN
 		DROP TEMPORARY TABLE IF EXISTS tmp_grouped;
 		CREATE TEMPORARY TABLE tmp_grouped AS
 		SELECT
-				clean_name(
-						CONCAT(
-								IFNULL(
-										CASE WHEN MAX(pm.MAIN_MODEL) IS NOT NULL
-												THEN CONCAT_WS(' ', NULLIF(TRIM(MAX(pm.BRAND)), ''), MAX(pm.MAIN_MODEL))
-										END,
-										IFNULL(MAX(pm.COMMERCIAL_NAME),
-												IFNULL(MAX(pm.SAP_DESCRIPTION),
-														CONCAT(MAX(pm.COMPANY), '_', MAX(pm.MAT_CODE))
-												)
-										)
-								),
-								CASE WHEN IFNULL(MAX(pm.GRADE), '') IN ('GD', 'DEM') THEN ' GD' ELSE '' END
-						)
-				) AS PO_NAME,
-				GROUP_CONCAT(DISTINCT pm.MAT_CODE
-						ORDER BY pm.MAT_CODE SEPARATOR ', ')                                AS SKU,
-				clean_name(GROUP_CONCAT(DISTINCT CONCAT_WS('_', IFNULL(pm.CAPACITY, 'n_a'), IFNULL(pm.COLOR, 'n_a'))
-						ORDER BY pm.CAPACITY, pm.COLOR SEPARATOR ', '))                      AS V_ID,
-				pm.PRODUCT_TYPE                                                         AS PRODUCT_LINE,
-				pm.PRODUCT_SUBTYPE                                                      AS PRODUCT_TYPE,
-				CONCAT(pm.PRODUCT_TYPE, '|', IFNULL(pm.PRODUCT_SUBTYPE, ''))           	AS PRODUCT_LINE_TYPE_PAIR,
-				pm.PRODUCT_TYPE                                                         AS PRODUCT_LINE_GROUP_CONCAT,
-				IFNULL(pm.PRODUCT_SUBTYPE, '')                                          AS PRODUCT_TYPE_GROUP_CONCAT,
-				GROUP_CONCAT(DISTINCT pm.VALUATION_CLASS
-						ORDER BY pm.VALUATION_CLASS SEPARATOR ', ')                         AS VALUATION_CLASS,
-				MIN(pm.EFFECTIVE_DATE)                                                  AS MIN_EFFECTIVE_DATE,
-				MAX(pm.EXPIRE_DATE)                                                     AS MAX_EXPIRE_DATE,
-				clean_name(MAX(pm.MAIN_MODEL))                                          AS MAIN_MODEL,
-				clean_name(MAX(pm.BRAND))                                               AS BRAND,
-				clean_name(MAX(pm.COMMERCIAL_NAME))                                     AS COMMERCIAL_NAME,
-				clean_name(MAX(pm.SAP_DESCRIPTION))                                     AS SAP_DESCRIPTION,
-				clean_name(MAX(pm.COMPANY))                                             AS COMPANY,
-				GROUP_CONCAT(DISTINCT pm.MAT_CODE
-						ORDER BY pm.MAT_CODE SEPARATOR ', ')                                AS MAT_CODE,
-				GROUP_CONCAT(DISTINCT pm.PRODUCT_ID
-						ORDER BY pm.PRODUCT_ID SEPARATOR ', ')                              AS PRODUCT_ID,
-				MAX(pm.GRADE)                                                           AS GRADE
-		FROM PRODUCT_MST pm
-		WHERE IFNULL(pm.isGenerate, 0) = 0
-		AND pm.PRODUCT_TYPE NOT IN ('SERVICE')
-		GROUP BY
-				CASE WHEN pm.MAIN_MODEL IS NOT NULL
-						THEN CONCAT_WS(' ', NULLIF(TRIM(pm.BRAND), ''), pm.MAIN_MODEL)
-						ELSE IFNULL(pm.COMMERCIAL_NAME,
-										IFNULL(pm.SAP_DESCRIPTION, CONCAT(pm.COMPANY, '_', pm.MAT_CODE)))
-				END,
-				CASE WHEN IFNULL(pm.GRADE, '') IN ('GD', 'DEM') THEN 'GD' ELSE '' END,
-				pm.PRODUCT_TYPE,
-				pm.PRODUCT_SUBTYPE;
+						CASE
+								WHEN COUNT(*) OVER (PARTITION BY g.PO_NAME) > 1
+										THEN clean_name(g.SAP_DESCRIPTION)
+								ELSE g.PO_NAME
+						END                          AS PO_NAME,
+						g.SKU,
+						g.V_ID,
+						g.PRODUCT_LINE,
+						g.PRODUCT_TYPE,
+						g.PRODUCT_LINE_TYPE_PAIR,
+						g.PRODUCT_LINE_GROUP_CONCAT,
+						g.PRODUCT_TYPE_GROUP_CONCAT,
+						g.VALUATION_CLASS,
+						g.MIN_EFFECTIVE_DATE,
+						g.MAX_EXPIRE_DATE,
+						g.MAIN_MODEL,
+						g.BRAND,
+						g.COMMERCIAL_NAME,
+						g.SAP_DESCRIPTION,
+						g.COMPANY,
+						g.MAT_CODE,
+						g.PRODUCT_ID,
+						g.GRADE
+		FROM (
+				SELECT
+								CONCAT(
+												IFNULL(
+																CASE WHEN MAX(pm.MAIN_MODEL) IS NOT NULL
+																				THEN CONCAT_WS(' ', NULLIF(TRIM(MAX(pm.BRAND)), ''), MAX(pm.MAIN_MODEL))
+																END,
+																IFNULL(MAX(pm.COMMERCIAL_NAME),
+																				IFNULL(MAX(pm.SAP_DESCRIPTION),
+																								CONCAT(MAX(pm.COMPANY), '_', MAX(pm.MAT_CODE))
+																				)
+																)
+												),
+												CASE WHEN IFNULL(MAX(pm.GRADE), '') IN ('GD', 'DEM') THEN ' GD' ELSE '' END
+								) AS PO_NAME,
+								GROUP_CONCAT(DISTINCT pm.MAT_CODE
+												ORDER BY pm.MAT_CODE SEPARATOR ', ')                                AS SKU,
+								clean_name(GROUP_CONCAT(DISTINCT CONCAT_WS('_', IFNULL(pm.CAPACITY, 'n_a'), IFNULL(pm.COLOR, 'n_a'))
+												ORDER BY pm.CAPACITY, pm.COLOR SEPARATOR ', '))                      AS V_ID,
+								pm.PRODUCT_TYPE                                                         AS PRODUCT_LINE,
+								pm.PRODUCT_SUBTYPE                                                      AS PRODUCT_TYPE,
+								CONCAT(pm.PRODUCT_TYPE, '|', IFNULL(pm.PRODUCT_SUBTYPE, ''))           	AS PRODUCT_LINE_TYPE_PAIR,
+								pm.PRODUCT_TYPE                                                         AS PRODUCT_LINE_GROUP_CONCAT,
+								IFNULL(pm.PRODUCT_SUBTYPE, '')                                          AS PRODUCT_TYPE_GROUP_CONCAT,
+								GROUP_CONCAT(DISTINCT pm.VALUATION_CLASS
+												ORDER BY pm.VALUATION_CLASS SEPARATOR ', ')                         AS VALUATION_CLASS,
+								MIN(pm.EFFECTIVE_DATE)                                                  AS MIN_EFFECTIVE_DATE,
+								MAX(pm.EXPIRE_DATE)                                                     AS MAX_EXPIRE_DATE,
+								clean_name(MAX(pm.MAIN_MODEL))                                          AS MAIN_MODEL,
+								clean_name(MAX(pm.BRAND))                                               AS BRAND,
+								clean_name(MAX(pm.COMMERCIAL_NAME))                                     AS COMMERCIAL_NAME,
+								clean_name(MAX(pm.SAP_DESCRIPTION))                                     AS SAP_DESCRIPTION,
+								clean_name(MAX(pm.COMPANY))                                             AS COMPANY,
+								GROUP_CONCAT(DISTINCT pm.MAT_CODE
+												ORDER BY pm.MAT_CODE SEPARATOR ', ')                                AS MAT_CODE,
+								GROUP_CONCAT(DISTINCT pm.PRODUCT_ID
+												ORDER BY pm.PRODUCT_ID SEPARATOR ', ')                              AS PRODUCT_ID,
+								MAX(pm.GRADE)                                                           AS GRADE
+				FROM PRODUCT_MST pm
+				WHERE IFNULL(pm.isGenerate, 0) = 0 AND pm.PRODUCT_TYPE NOT IN ('SERVICE')
+				GROUP BY
+								CASE WHEN pm.MAIN_MODEL IS NOT NULL
+												THEN CONCAT_WS(' ', NULLIF(TRIM(pm.BRAND), ''), pm.MAIN_MODEL)
+												ELSE IFNULL(pm.COMMERCIAL_NAME,
+																				IFNULL(pm.SAP_DESCRIPTION, CONCAT(pm.COMPANY, '_', pm.MAT_CODE)))
+								END,
+								CASE WHEN IFNULL(pm.GRADE, '') IN ('GD', 'DEM') THEN 'GD' ELSE '' END,
+								pm.PRODUCT_TYPE,
+								pm.PRODUCT_SUBTYPE
+		) AS g;
 
     -- นับเฉพาะ PO ใหม่ที่ยังไม่มีใน tbl_product_offering
     SELECT COUNT(*) INTO v_new_count
@@ -538,5 +561,7 @@ proc_label: BEGIN
              `SpecCharacteristic.Characteristics ID`;
 
 END proc_label$$
+$$
+$$
 
-DELIMITER ;
+DELIMITER;

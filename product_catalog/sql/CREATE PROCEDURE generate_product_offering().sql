@@ -561,7 +561,5 @@ proc_label: BEGIN
              `SpecCharacteristic.Characteristics ID`;
 
 END proc_label$$
-$$
-$$
 
-DELIMITER;
+DELIMITER ;

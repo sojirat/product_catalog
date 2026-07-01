@@ -1,11 +1,18 @@
 import os
 import re
 import csv
+import sys
 import time
 from copy import copy
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PACKAGE_DIR = Path(__file__).resolve().parent
+for path in (str(PROJECT_ROOT), str(PACKAGE_DIR)):
+    if path not in sys.path:
+        sys.path.insert(0, path)
 
 from translation import connect_database, load_database_config, load_env
 

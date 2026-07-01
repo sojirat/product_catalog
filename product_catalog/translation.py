@@ -184,6 +184,7 @@ def connect_database(db_config: DatabaseConfig):
         cursor.execute("SET NAMES utf8mb4 COLLATE utf8mb4_general_ci")
         cursor.execute("SET CHARACTER SET utf8mb4")
         cursor.execute("SET character_set_connection=utf8mb4")
+        cursor.execute("SET collation_connection = 'utf8mb4_general_ci'")
 
     return connection
 

@@ -809,16 +809,12 @@ proc_label: BEGIN
 			)
 
 			SELECT
-REGEXP_REPLACE(
-                        clean_id(CONCAT(
-                            v_pr_prefix,
-                            clean_id(t.PROMOTION_NAME),
-                            v_pr_suffix,
-                            LPAD(@v_seq := @v_seq + 1, v_pr_pad, '0')
-                        )),
-                        '_pm_mg([0-9]+)',
-                        '-pm_mg\\1'
-                    ) AS PROMOTION_ID,
+					CONCAT(
+							v_pr_prefix,
+							clean_id(t.PROMOTION_NAME),
+							v_pr_suffix,
+							LPAD(@v_seq := @v_seq + 1, v_pr_pad, '0')
+					) AS PROMOTION_ID,
 
 					clean_id(CONCAT(
 							v_pa_prefix,
@@ -1177,194 +1173,192 @@ REGEXP_REPLACE(
 		ORDER BY rn;
 
 END proc_label$$
-$$
-$$
-$$
 
-DELIMITER;
+DELIMITER ;
+
 
 /*
 
 -- 1
 SELECT
-CONVERT(CAST(TDC.TRADE_DISCOUNT_ID AS CHAR) USING utf8mb4)
-COLLATE utf8mb4_general_ci                  AS EXTERNAL_ID,
-CONVERT(CONCAT(
-CAST(TDC.TRADE_DISCOUNT_ID AS CHAR),
-' ', TM.CAMPAIGN, ' ', TM.TRADE_NAME,
-' discount ',
-CAST(REPLACE(IFNULL(TDC.TRADE_PRICE_EXC_VAT, TDC.DISCOUNT_EXC), '.', '_') AS CHAR),
-' Baht for ',
-IFNULL(TPD.BRAND, ''), ' ', IFNULL(TPD.MODEL, ''),
-' ', IFNULL(TPD.COLOR, ''), ' ', IFNULL(TPD.MAT_CODE, ''),
-CASE
-WHEN IFNULL(TPD.MIN_PRICE_LENGTH, '') = ''
-AND IFNULL(TPD.MAX_PRICE_LENGTH, '') = '' THEN ''
-WHEN IFNULL(TPD.MIN_PRICE_LENGTH, '') = ''
-THEN CONCAT(' ', TPD.MAX_PRICE_LENGTH)
-WHEN IFNULL(TPD.MAX_PRICE_LENGTH, '') = ''
-THEN CONCAT(' ', TPD.MIN_PRICE_LENGTH)
-ELSE CONCAT(' ', TPD.MIN_PRICE_LENGTH, '-', TPD.MAX_PRICE_LENGTH)
-END
-) USING utf8mb4) COLLATE utf8mb4_general_ci    AS PROMOTION_NAME,
-CASE
-WHEN TDC.TRADE_PRICE_EXC_VAT IS NULL THEN 'Discount'
-ELSE 'Reduction'
-END                                             AS PROMOTION_TYPE,
-NULL                                            AS CODE,
-'Launched'                                      AS LIFECYCLE_STATUS,
-NULL                                            AS COUPON,
-'mutuallyExclusive'                             AS PROMOTION_CLASSIFICATION,
-'Cart'                                          AS PROMOTION_APPLICATION_LEVEL,
-safe_to_datetime(TDC.START_DATE)                AS VALID_FOR_START_DATETIME,
-safe_to_datetime(TDC.END_DATE)                  AS VALID_FOR_END_DATETIME,
-NULL                                            AS ACTION_CARDINALITY,
-CONVERT(CAST(IFNULL(TDC.TRADE_PRICE_EXC_VAT, TDC.DISCOUNT_EXC) AS CHAR)
-USING utf8mb4) COLLATE utf8mb4_general_ci  AS ACTION_VALUE,
-'Onetime'                                       AS PRICE_TYPE,
-IFNULL(TDC.OPTIONS, 1)                          AS PRIORITY,
-NULL                                            AS ACTION_OBJECT_ID,
-NULL                                            AS PRICE_ID,
-CASE
-WHEN TDC.DISCOUNT_BY = 'B'               THEN 'Flat Discount'
-WHEN TDC.DISCOUNT_BY = 'P'               THEN 'Percent Discount'
-WHEN TDC.TRADE_PRICE_EXC_VAT IS NOT NULL THEN 'Flat Price'
-ELSE NULL
-END                                             AS ACTION_TYPE,
-CONVERT(TPD.MAT_CODE USING utf8mb4)
-COLLATE utf8mb4_general_ci                  AS SKU,
-NULL                                            AS AWARD_PRODUCT_ID,
-CONVERT(POV.variantId USING utf8mb4)
-COLLATE utf8mb4_general_ci                  AS VARIANT_ID,
-CONVERT(POV.`Product Id` USING utf8mb4)
-COLLATE utf8mb4_general_ci                  AS PRODUCT_OFFER_ID,
-CONVERT(POV.`value` USING utf8mb4)
-COLLATE utf8mb4_general_ci                  AS CHARACTERISTIC_VALUE,
-NULL                                            AS APPLICATION_DURATION,
-CONVERT(TM.TRADE_NO USING utf8mb4)
-COLLATE utf8mb4_general_ci                  AS TRADE_NO,
-CONVERT(TM.TRADE_NAME USING utf8mb4)
-COLLATE utf8mb4_general_ci                  AS TRADE_NAME,
-CONVERT(TDC.TRADE_DISCOUNT_ID USING utf8mb4)
-COLLATE utf8mb4_general_ci                  AS TRADE_DISCOUNT_ID,
-CONVERT(TPD.TRADE_PRODUCT_ID USING utf8mb4)
-COLLATE utf8mb4_general_ci                  AS TRADE_PRODUCT_ID,
-NULL																						AS TRADE_FREE_GOODS_ID,
-CONVERT(TM.CAMPAIGN USING utf8mb4)
-COLLATE utf8mb4_general_ci                  AS CAMPAIGN,
-'PART1_DISCOUNT_REDUCTION'                      AS PROMOTION_SOURCE
-FROM TR_PRODUCT TPD
-LEFT JOIN TR_MST      TM  ON TM.TRADE_NO          = TPD.TRADE_NO
-LEFT JOIN TR_DISCOUNT TDC ON TDC.TRADE_PRODUCT_ID = TPD.TRADE_PRODUCT_ID
-LEFT JOIN tbl_product_offering_variant POV ON POV.SKU = TPD.MAT_CODE
-WHERE NOW() BETWEEN
-safe_to_datetime(TPD.START_DATE)
-AND safe_to_datetime(TPD.END_DATE)
-AND TDC.TRADE_DISCOUNT_ID IS NOT NULL
-AND NOW() BETWEEN
-safe_to_datetime(TDC.START_DATE)
-AND safe_to_datetime(TDC.END_DATE)
-AND TM.SALE_TYPE = 'SALE';
+        CONVERT(CAST(TDC.TRADE_DISCOUNT_ID AS CHAR) USING utf8mb4)
+            COLLATE utf8mb4_general_ci                  AS EXTERNAL_ID,
+        CONVERT(CONCAT(
+            CAST(TDC.TRADE_DISCOUNT_ID AS CHAR),
+            ' ', TM.CAMPAIGN, ' ', TM.TRADE_NAME,
+            ' discount ',
+             CAST(REPLACE(IFNULL(TDC.TRADE_PRICE_EXC_VAT, TDC.DISCOUNT_EXC), '.', '_') AS CHAR),
+            ' Baht for ',
+            IFNULL(TPD.BRAND, ''), ' ', IFNULL(TPD.MODEL, ''),
+            ' ', IFNULL(TPD.COLOR, ''), ' ', IFNULL(TPD.MAT_CODE, ''),
+            CASE
+                WHEN IFNULL(TPD.MIN_PRICE_LENGTH, '') = ''
+                     AND IFNULL(TPD.MAX_PRICE_LENGTH, '') = '' THEN ''
+                WHEN IFNULL(TPD.MIN_PRICE_LENGTH, '') = ''
+                    THEN CONCAT(' ', TPD.MAX_PRICE_LENGTH)
+                WHEN IFNULL(TPD.MAX_PRICE_LENGTH, '') = ''
+                    THEN CONCAT(' ', TPD.MIN_PRICE_LENGTH)
+                ELSE CONCAT(' ', TPD.MIN_PRICE_LENGTH, '-', TPD.MAX_PRICE_LENGTH)
+            END
+        ) USING utf8mb4) COLLATE utf8mb4_general_ci    AS PROMOTION_NAME,
+        CASE
+            WHEN TDC.TRADE_PRICE_EXC_VAT IS NULL THEN 'Discount'
+            ELSE 'Reduction'
+        END                                             AS PROMOTION_TYPE,
+        NULL                                            AS CODE,
+        'Launched'                                      AS LIFECYCLE_STATUS,
+        NULL                                            AS COUPON,
+        'mutuallyExclusive'                             AS PROMOTION_CLASSIFICATION,
+        'Cart'                                          AS PROMOTION_APPLICATION_LEVEL,
+        safe_to_datetime(TDC.START_DATE)                AS VALID_FOR_START_DATETIME,
+        safe_to_datetime(TDC.END_DATE)                  AS VALID_FOR_END_DATETIME,
+        NULL                                            AS ACTION_CARDINALITY,
+        CONVERT(CAST(IFNULL(TDC.TRADE_PRICE_EXC_VAT, TDC.DISCOUNT_EXC) AS CHAR)
+            USING utf8mb4) COLLATE utf8mb4_general_ci  AS ACTION_VALUE,
+        'Onetime'                                       AS PRICE_TYPE,
+        IFNULL(TDC.OPTIONS, 1)                          AS PRIORITY,
+        NULL                                            AS ACTION_OBJECT_ID,
+        NULL                                            AS PRICE_ID,
+        CASE
+            WHEN TDC.DISCOUNT_BY = 'B'               THEN 'Flat Discount'
+            WHEN TDC.DISCOUNT_BY = 'P'               THEN 'Percent Discount'
+            WHEN TDC.TRADE_PRICE_EXC_VAT IS NOT NULL THEN 'Flat Price'
+            ELSE NULL
+        END                                             AS ACTION_TYPE,
+        CONVERT(TPD.MAT_CODE USING utf8mb4)
+            COLLATE utf8mb4_general_ci                  AS SKU,
+        NULL                                            AS AWARD_PRODUCT_ID,
+        CONVERT(POV.variantId USING utf8mb4)
+            COLLATE utf8mb4_general_ci                  AS VARIANT_ID,
+        CONVERT(POV.`Product Id` USING utf8mb4)
+            COLLATE utf8mb4_general_ci                  AS PRODUCT_OFFER_ID,
+        CONVERT(POV.`value` USING utf8mb4)
+            COLLATE utf8mb4_general_ci                  AS CHARACTERISTIC_VALUE,
+        NULL                                            AS APPLICATION_DURATION,
+				CONVERT(TM.TRADE_NO USING utf8mb4)
+            COLLATE utf8mb4_general_ci                  AS TRADE_NO,
+        CONVERT(TM.TRADE_NAME USING utf8mb4)
+            COLLATE utf8mb4_general_ci                  AS TRADE_NAME,
+				CONVERT(TDC.TRADE_DISCOUNT_ID USING utf8mb4)
+            COLLATE utf8mb4_general_ci                  AS TRADE_DISCOUNT_ID,
+				CONVERT(TPD.TRADE_PRODUCT_ID USING utf8mb4)
+            COLLATE utf8mb4_general_ci                  AS TRADE_PRODUCT_ID,
+				NULL																						AS TRADE_FREE_GOODS_ID,
+        CONVERT(TM.CAMPAIGN USING utf8mb4)
+            COLLATE utf8mb4_general_ci                  AS CAMPAIGN,
+        'PART1_DISCOUNT_REDUCTION'                      AS PROMOTION_SOURCE
+    FROM TR_PRODUCT TPD
+    LEFT JOIN TR_MST      TM  ON TM.TRADE_NO          = TPD.TRADE_NO
+    LEFT JOIN TR_DISCOUNT TDC ON TDC.TRADE_PRODUCT_ID = TPD.TRADE_PRODUCT_ID
+    LEFT JOIN tbl_product_offering_variant POV ON POV.SKU = TPD.MAT_CODE
+    WHERE NOW() BETWEEN
+                safe_to_datetime(TPD.START_DATE)
+        AND safe_to_datetime(TPD.END_DATE)
+        AND TDC.TRADE_DISCOUNT_ID IS NOT NULL
+        AND NOW() BETWEEN
+                safe_to_datetime(TDC.START_DATE)
+        AND safe_to_datetime(TDC.END_DATE)
+        AND TM.SALE_TYPE = 'SALE';
 
 -- 2&3
 SELECT
-CONVERT(CAST(TFG.TRADE_FREE_GOODS_ID AS CHAR) USING utf8mb4)
-COLLATE utf8mb4_general_ci                  AS EXTERNAL_ID,
-CONVERT(CONCAT(
-CAST(TFG.TRADE_FREE_GOODS_ID AS CHAR),
-' ', TM.CAMPAIGN, ' ', TM.TRADE_NAME,
-' reward ', TFG.MAT_CODE, ' for ',
-IFNULL(TPD.BRAND, ''), ' ', IFNULL(TPD.MODEL, ''),
-' ', IFNULL(TPD.COLOR, ''), ' ', IFNULL(TPD.MAT_CODE, ''),
--- แสดง price length range เฉพาะกรณี ALL
-CASE
-WHEN fg_grp.fg_type NOT LIKE '%PART2_FG_ALL%' THEN ''
-WHEN IFNULL(TPD.MIN_PRICE_LENGTH, '') = ''
-AND IFNULL(TPD.MAX_PRICE_LENGTH, '') = '' THEN ''
-WHEN IFNULL(TPD.MIN_PRICE_LENGTH, '') = ''
-THEN CONCAT(' ', TPD.MAX_PRICE_LENGTH)
-WHEN IFNULL(TPD.MAX_PRICE_LENGTH, '') = ''
-THEN CONCAT(' ', TPD.MIN_PRICE_LENGTH)
-ELSE CONCAT(' ', TPD.MIN_PRICE_LENGTH, '-', TPD.MAX_PRICE_LENGTH)
-END
-) USING utf8mb4) COLLATE utf8mb4_general_ci    AS PROMOTION_NAME,
-'Award'                                         AS PROMOTION_TYPE,
-NULL                                            AS CODE,
-'Launched'                                      AS LIFECYCLE_STATUS,
-NULL                                            AS COUPON,
-'stackable'                                     AS PROMOTION_CLASSIFICATION,
-'Cart'                                          AS PROMOTION_APPLICATION_LEVEL,
-safe_to_datetime(TFG.START_DATE)                AS VALID_FOR_START_DATETIME,
-safe_to_datetime(TFG.END_DATE)                  AS VALID_FOR_END_DATETIME,
-1                                               AS ACTION_CARDINALITY,
-CONVERT(CAST(TFG.QTY AS CHAR) USING utf8mb4)
-COLLATE utf8mb4_general_ci                  AS ACTION_VALUE,
-NULL                                            AS PRICE_TYPE,
-NULL                                            AS PRIORITY,
-NULL                                            AS ACTION_OBJECT_ID,
-NULL                                            AS PRICE_ID,
-'Add Product'                                   AS ACTION_TYPE,
-CONVERT(TFG.MAT_CODE USING utf8mb4)
-COLLATE utf8mb4_general_ci                  AS SKU,
-CONVERT(POV.variantId USING utf8mb4)
-COLLATE utf8mb4_general_ci                  AS AWARD_PRODUCT_ID,
-CONVERT(POV.variantId USING utf8mb4)
-COLLATE utf8mb4_general_ci                  AS VARIANT_ID,
-CONVERT(POV.`Product Id` USING utf8mb4)
-COLLATE utf8mb4_general_ci                  AS PRODUCT_OFFER_ID,
-CONVERT(POV.`value` USING utf8mb4)
-COLLATE utf8mb4_general_ci                  AS CHARACTERISTIC_VALUE,
-NULL                                            AS APPLICATION_DURATION,
-CONVERT(TM.TRADE_NO USING utf8mb4)
-COLLATE utf8mb4_general_ci                  AS TRADE_NO,
-CONVERT(TM.TRADE_NAME USING utf8mb4)
-COLLATE utf8mb4_general_ci                  AS TRADE_NAME,
-NULL 																						AS TRADE_DISCOUNT_ID,
-CONVERT(TPD.TRADE_PRODUCT_ID USING utf8mb4)
-COLLATE utf8mb4_general_ci                  AS TRADE_PRODUCT_ID,
-TFG.TRADE_FREE_GOODS_ID													AS TRADE_FREE_GOODS_ID,
-CONVERT(TM.CAMPAIGN USING utf8mb4)
-COLLATE utf8mb4_general_ci                  AS CAMPAIGN,
-fg_grp.fg_type                                  AS PROMOTION_SOURCE
-FROM TR_PRODUCT TPD
-LEFT JOIN TR_MST        TM  ON TM.TRADE_NO          = TPD.TRADE_NO
-LEFT JOIN TR_FREE_GOODS TFG ON TFG.TRADE_PRODUCT_ID = TPD.TRADE_PRODUCT_ID
-LEFT JOIN tbl_product_offering_variant POV ON POV.SKU = TFG.MAT_CODE
--- subquery classify ALL / CHOICE / ทั้งคู่ ต่อ TRADE_PRODUCT_ID
-JOIN (
-SELECT
-grp.TRADE_PRODUCT_ID,
-GROUP_CONCAT(
-DISTINCT grp.type_label
-ORDER BY grp.type_label
-SEPARATOR ','
-) AS fg_type
-FROM (
-SELECT
-TPD3.TRADE_PRODUCT_ID,
-CASE
-WHEN TPD3.MAX_RECEIVE_FREE_GOODS = COUNT(*) THEN 'PART2_FG_ALL'
-ELSE 'PART3_FG_CHOICE'
-END AS type_label
-FROM TR_PRODUCT   TPD3
-INNER JOIN TR_FREE_GOODS TFG3
-ON TFG3.TRADE_PRODUCT_ID = TPD3.TRADE_PRODUCT_ID
-WHERE NOW() BETWEEN
-safe_to_datetime(TFG3.START_DATE)
-AND safe_to_datetime(TFG3.END_DATE)
-GROUP BY
-TPD3.TRADE_PRODUCT_ID,
-TPD3.MAX_RECEIVE_FREE_GOODS
-HAVING TPD3.MAX_RECEIVE_FREE_GOODS <= COUNT(*)
-) grp
-GROUP BY grp.TRADE_PRODUCT_ID
-) AS fg_grp ON fg_grp.TRADE_PRODUCT_ID = TPD.TRADE_PRODUCT_ID
-WHERE NOW() BETWEEN
-safe_to_datetime(TPD.START_DATE)
-AND safe_to_datetime(TPD.END_DATE)
-AND NOW() BETWEEN
-safe_to_datetime(TFG.START_DATE)
-AND safe_to_datetime(TFG.END_DATE)
-AND TM.SALE_TYPE = 'SALE';
+        CONVERT(CAST(TFG.TRADE_FREE_GOODS_ID AS CHAR) USING utf8mb4)
+            COLLATE utf8mb4_general_ci                  AS EXTERNAL_ID,
+        CONVERT(CONCAT(
+            CAST(TFG.TRADE_FREE_GOODS_ID AS CHAR),
+            ' ', TM.CAMPAIGN, ' ', TM.TRADE_NAME,
+            ' reward ', TFG.MAT_CODE, ' for ',
+            IFNULL(TPD.BRAND, ''), ' ', IFNULL(TPD.MODEL, ''),
+            ' ', IFNULL(TPD.COLOR, ''), ' ', IFNULL(TPD.MAT_CODE, ''),
+            -- แสดง price length range เฉพาะกรณี ALL
+            CASE
+                WHEN fg_grp.fg_type NOT LIKE '%PART2_FG_ALL%' THEN ''
+                WHEN IFNULL(TPD.MIN_PRICE_LENGTH, '') = ''
+                     AND IFNULL(TPD.MAX_PRICE_LENGTH, '') = '' THEN ''
+                WHEN IFNULL(TPD.MIN_PRICE_LENGTH, '') = ''
+                    THEN CONCAT(' ', TPD.MAX_PRICE_LENGTH)
+                WHEN IFNULL(TPD.MAX_PRICE_LENGTH, '') = ''
+                    THEN CONCAT(' ', TPD.MIN_PRICE_LENGTH)
+                ELSE CONCAT(' ', TPD.MIN_PRICE_LENGTH, '-', TPD.MAX_PRICE_LENGTH)
+            END
+        ) USING utf8mb4) COLLATE utf8mb4_general_ci    AS PROMOTION_NAME,
+        'Award'                                         AS PROMOTION_TYPE,
+        NULL                                            AS CODE,
+        'Launched'                                      AS LIFECYCLE_STATUS,
+        NULL                                            AS COUPON,
+        'stackable'                                     AS PROMOTION_CLASSIFICATION,
+        'Cart'                                          AS PROMOTION_APPLICATION_LEVEL,
+        safe_to_datetime(TFG.START_DATE)                AS VALID_FOR_START_DATETIME,
+        safe_to_datetime(TFG.END_DATE)                  AS VALID_FOR_END_DATETIME,
+        1                                               AS ACTION_CARDINALITY,
+        CONVERT(CAST(TFG.QTY AS CHAR) USING utf8mb4)
+            COLLATE utf8mb4_general_ci                  AS ACTION_VALUE,
+        NULL                                            AS PRICE_TYPE,
+        NULL                                            AS PRIORITY,
+        NULL                                            AS ACTION_OBJECT_ID,
+        NULL                                            AS PRICE_ID,
+        'Add Product'                                   AS ACTION_TYPE,
+        CONVERT(TFG.MAT_CODE USING utf8mb4)
+            COLLATE utf8mb4_general_ci                  AS SKU,
+        CONVERT(POV.variantId USING utf8mb4)
+            COLLATE utf8mb4_general_ci                  AS AWARD_PRODUCT_ID,
+        CONVERT(POV.variantId USING utf8mb4)
+            COLLATE utf8mb4_general_ci                  AS VARIANT_ID,
+        CONVERT(POV.`Product Id` USING utf8mb4)
+            COLLATE utf8mb4_general_ci                  AS PRODUCT_OFFER_ID,
+        CONVERT(POV.`value` USING utf8mb4)
+            COLLATE utf8mb4_general_ci                  AS CHARACTERISTIC_VALUE,
+        NULL                                            AS APPLICATION_DURATION,
+				CONVERT(TM.TRADE_NO USING utf8mb4)
+            COLLATE utf8mb4_general_ci                  AS TRADE_NO,
+        CONVERT(TM.TRADE_NAME USING utf8mb4)
+            COLLATE utf8mb4_general_ci                  AS TRADE_NAME,
+				NULL 																						AS TRADE_DISCOUNT_ID,
+				CONVERT(TPD.TRADE_PRODUCT_ID USING utf8mb4)
+            COLLATE utf8mb4_general_ci                  AS TRADE_PRODUCT_ID,
+				TFG.TRADE_FREE_GOODS_ID													AS TRADE_FREE_GOODS_ID,
+        CONVERT(TM.CAMPAIGN USING utf8mb4)
+            COLLATE utf8mb4_general_ci                  AS CAMPAIGN,
+        fg_grp.fg_type                                  AS PROMOTION_SOURCE
+    FROM TR_PRODUCT TPD
+    LEFT JOIN TR_MST        TM  ON TM.TRADE_NO          = TPD.TRADE_NO
+    LEFT JOIN TR_FREE_GOODS TFG ON TFG.TRADE_PRODUCT_ID = TPD.TRADE_PRODUCT_ID
+    LEFT JOIN tbl_product_offering_variant POV ON POV.SKU = TFG.MAT_CODE
+    -- subquery classify ALL / CHOICE / ทั้งคู่ ต่อ TRADE_PRODUCT_ID
+    JOIN (
+        SELECT
+            grp.TRADE_PRODUCT_ID,
+            GROUP_CONCAT(
+                DISTINCT grp.type_label
+                ORDER BY grp.type_label
+                SEPARATOR ','
+            ) AS fg_type
+        FROM (
+            SELECT
+                TPD3.TRADE_PRODUCT_ID,
+                CASE
+                    WHEN TPD3.MAX_RECEIVE_FREE_GOODS = COUNT(*) THEN 'PART2_FG_ALL'
+                    ELSE 'PART3_FG_CHOICE'
+                END AS type_label
+            FROM TR_PRODUCT   TPD3
+            INNER JOIN TR_FREE_GOODS TFG3
+                    ON TFG3.TRADE_PRODUCT_ID = TPD3.TRADE_PRODUCT_ID
+            WHERE NOW() BETWEEN
+                        safe_to_datetime(TFG3.START_DATE)
+                    AND safe_to_datetime(TFG3.END_DATE)
+            GROUP BY
+                TPD3.TRADE_PRODUCT_ID,
+                TPD3.MAX_RECEIVE_FREE_GOODS
+            HAVING TPD3.MAX_RECEIVE_FREE_GOODS <= COUNT(*)
+        ) grp
+        GROUP BY grp.TRADE_PRODUCT_ID
+    ) AS fg_grp ON fg_grp.TRADE_PRODUCT_ID = TPD.TRADE_PRODUCT_ID
+    WHERE NOW() BETWEEN
+                safe_to_datetime(TPD.START_DATE)
+        AND safe_to_datetime(TPD.END_DATE)
+        AND NOW() BETWEEN
+                safe_to_datetime(TFG.START_DATE)
+        AND safe_to_datetime(TFG.END_DATE)
+        AND TM.SALE_TYPE = 'SALE';
 
 */

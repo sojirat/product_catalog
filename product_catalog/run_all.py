@@ -1,7 +1,14 @@
 import argparse
 import re
+import sys
 import time
 from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PACKAGE_DIR = Path(__file__).resolve().parent
+for path in (str(PROJECT_ROOT), str(PACKAGE_DIR)):
+    if path not in sys.path:
+        sys.path.insert(0, path)
 
 from product_catalog.export_template_mapping import BASE_DIR
 from sql_runner import split_mysql_script

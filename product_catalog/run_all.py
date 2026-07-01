@@ -18,6 +18,14 @@ from translation import (
     translate_promotion_id,
 )
 
+PO_JOB = TranslationJob(
+    name="Translate Product Offering PO_ID",
+    table_name="tbl_product_offering",
+    id_column="PO_ID",
+    original_column="PO_ID_ORIGINAL",
+    transform=translate_po_id,
+)
+
 VARIANT_JOB = TranslationJob(
     name="Translate Product Offering Variant variantId",
     table_name="tbl_product_offering_variant",

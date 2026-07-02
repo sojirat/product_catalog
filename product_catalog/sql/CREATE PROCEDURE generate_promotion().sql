@@ -871,7 +871,7 @@ proc_label: BEGIN
 									= CAST(IFNULL(tp.VARIANT_ID, '') AS CHAR) COLLATE utf8mb4_general_ci
 					)
 			) t
-			ORDER BY t.PROMOTION_NAME;
+			ORDER BY t.EXTERNAL_ID, IFNULL(t.VARIANT_ID, '');
     END IF;
 
     -- ============================================================

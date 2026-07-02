@@ -1,3 +1,6 @@
+SET NAMES utf8mb4 COLLATE utf8mb4_general_ci;
+SET collation_connection = 'utf8mb4_general_ci';
+
 DELIMITER $$
 
 DROP PROCEDURE IF EXISTS generate_product_offering_variant$$

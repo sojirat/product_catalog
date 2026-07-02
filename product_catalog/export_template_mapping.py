@@ -1,7 +1,9 @@
+import itertools
 import os
 import re
 import csv
 import sys
+import threading
 import time
 from copy import copy
 from collections import defaultdict
@@ -78,6 +80,11 @@ def main() -> None:
                 timestamp,
             )
 
+            file_group_map = build_output_file_group_map(
+                mapping_rows,
+                timestamp,
+            )
+
             rows_by_excel_file = group_mapping_rows_by_excel_file(
                 mapping_rows,
             )
@@ -93,11 +100,14 @@ def main() -> None:
             # EXPORT XLSX
             #
             for output_file, rows in rows_by_raw_file.items():
+                group = file_group_map.get(output_file, "")
+                output_path = (xlsx_dir / group / output_file) if group else (xlsx_dir / output_file)
+                output_path.parent.mkdir(parents=True, exist_ok=True)
                 measure(
                     timings,
                     f"export_xlsx:{output_file}",
                     export_workbook,
-                    xlsx_dir / output_file,
+                    output_path,
                     rows,
                     datasets,
                     "Template File(Sheet Name)",
@@ -115,6 +125,7 @@ def main() -> None:
                 xlsx_dir,
                 rows_by_raw_file,
                 datasets,
+                file_group_map,
             )
 
             #
@@ -336,6 +347,22 @@ def group_mapping_rows_by_raw_file(
         rows_by_file[output_file].append(row)
 
     return dict(rows_by_file)
+
+
+def build_output_file_group_map(
+    mapping_rows: list[dict],
+    timestamp: str,
+) -> dict[str, str]:
+    result = {}
+    for row in mapping_rows:
+        output_file = build_output_file_name(
+            text_value(row["Raw data Output File"]),
+            timestamp,
+        )
+        group = sanitize_file_name(text_value(row.get("AIS Template Excel File", "")))
+        if output_file and group:
+            result[output_file] = group
+    return result
 
 
 def group_mapping_rows_by_excel_file(
@@ -651,6 +678,7 @@ def export_csv_files(
     xlsx_dir: Path,
     rows_by_file: dict[str, list[dict]],
     datasets: dict[str, tuple[list[str], list[dict]]],
+    file_group_map: dict[str, str] | None = None,
 ) -> None:
     # Convert the raw xlsx exports from xlsx_dir into CSV.
     # Use MySQL dataset headers and rows whenever possible so CSV output
@@ -667,14 +695,17 @@ def export_csv_files(
 
         started_at = time.perf_counter()
 
-        xlsx_path = xlsx_dir / xlsx_file_name
+        group = (file_group_map or {}).get(xlsx_file_name, "")
+        xlsx_path = (xlsx_dir / group / xlsx_file_name) if group else (xlsx_dir / xlsx_file_name)
 
         csv_file_name = (
             Path(xlsx_file_name).stem
             + ".csv"
         )
 
-        csv_path = csv_dir / csv_file_name
+        csv_subdir = (csv_dir / group) if group else csv_dir
+        csv_subdir.mkdir(parents=True, exist_ok=True)
+        csv_path = csv_subdir / csv_file_name
 
         print(
             f"\n=== CONVERT "
@@ -1546,20 +1577,32 @@ def measure(
     *args,
     **kwargs,
 ):
+    print(f"\n=== {name} ===", flush=True)
     started_at = time.perf_counter()
 
+    done = threading.Event()
+
+    def spin():
+        for frame in itertools.cycle("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"):
+            if done.is_set():
+                break
+            elapsed = time.perf_counter() - started_at
+            sys.stderr.write(f"\r{frame} {format_duration(elapsed)} elapsed...")
+            sys.stderr.flush()
+            time.sleep(0.1)
+        sys.stderr.write("\r" + " " * 30 + "\r")
+        sys.stderr.flush()
+
+    spinner = threading.Thread(target=spin, daemon=True)
+    spinner.start()
     try:
         return func(*args, **kwargs)
-
     finally:
+        done.set()
+        spinner.join()
         elapsed = time.perf_counter() - started_at
-
         timings.append((name, elapsed))
-
-        print(
-            f"\n=== {name} finished in "
-            f"{format_duration(elapsed)} ==="
-        )
+        print(f"=== {name} finished in {format_duration(elapsed)} ===")
 
 
 def print_timing_summary(

@@ -1,6 +1,8 @@
 import argparse
+import itertools
 import re
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -64,15 +66,24 @@ def main() -> None:
             kill_stale_database_sessions(cursor, config.database)
 
             if args.command == "run-flow":
-                batch_id = measure(
-                    timings,
-                    "reset_and_load_product_mst",
-                    reset_and_load_product_mst,
-                    cursor,
-                    connection,
-                    config.database,
-                    run_config,
-                )
+                skip_to = args.skip_to or 0
+                if skip_to > 0:
+                    cursor.execute("SELECT batch_id FROM ingest_batch ORDER BY batch_id DESC LIMIT 1")
+                    row = cursor.fetchone()
+                    if row is None:
+                        raise RuntimeError("--skip-to requires an existing ingest_batch row but the table is empty.")
+                    batch_id = row["batch_id"]
+                    print(f"\n=== SKIP reset_and_load_product_mst — resuming from step {skip_to:02d} with batch_id={batch_id} ===")
+                else:
+                    batch_id = measure(
+                        timings,
+                        "reset_and_load_product_mst",
+                        reset_and_load_product_mst,
+                        cursor,
+                        connection,
+                        config.database,
+                        run_config,
+                    )
                 measure(
                     timings,
                     "generate_translate_flow",
@@ -83,6 +94,7 @@ def main() -> None:
                     config.database,
                     run_config,
                     batch_id,
+                    skip_to,
                 )
     finally:
         connection.close()
@@ -98,12 +110,23 @@ def parse_args() -> argparse.Namespace:
         default="run-flow",
         help="run-flow = generate + translate",
     )
+    parser.add_argument(
+        "--skip-to",
+        type=int,
+        default=None,
+        metavar="STEP",
+        help="Skip reset/load and start from this step number (e.g. --skip-to=5). Uses batch_id from the latest ingest_batch.",
+    )
     return parser.parse_args()
 
 
 def configure_run_session(cursor) -> None:
     cursor.execute("SET SESSION lock_wait_timeout = 5")
     cursor.execute("SET SESSION innodb_lock_wait_timeout = 5")
+    cursor.execute("SET NAMES utf8mb4 COLLATE utf8mb4_general_ci")
+    cursor.execute("SET CHARACTER SET utf8mb4")
+    cursor.execute("SET character_set_connection=utf8mb4")
+    cursor.execute("SET collation_connection = 'utf8mb4_general_ci'")
 
 
 def kill_stale_database_sessions(cursor, database_name: str) -> None:
@@ -276,149 +299,70 @@ def run_generate_flow(
     database_name: str,
     run_config,
     batch_id: int | None,
+    skip_to: int = 0,
 ) -> None:
     translator = IdTranslator()
     actor = run_config.triggered_by
 
-    measure(
-        timings,
-        "01_generate_product_offering",
-        call_procedure,
-        cursor,
-        connection,
-        "generate_product_offering",
-        (batch_id, actor),
-    )
+    def step(num: int, name: str, func, *args):
+        if num < skip_to:
+            print(f"\n=== SKIP {name} (--skip-to={skip_to}) ===")
+            return
+        measure(timings, name, func, *args)
 
-    if not table_exists(cursor, database_name, "tbl_product_offering"):
+    step(1, "01_generate_product_offering", call_procedure, cursor, connection, "generate_product_offering", (batch_id, actor))
+
+    if skip_to <= 1 and not table_exists(cursor, database_name, "tbl_product_offering"):
         print(
             "\nStop: tbl_product_offering does not exist. "
             "generate_product_offering returned before creating output, likely because PRODUCT_MST has no rows with isGenerate = 0."
         )
         return
 
-    measure(
-        timings,
-        "02_translate_po_id",
-        timed_translation_job,
-        cursor,
-        connection,
-        PO_JOB,
-        translator,
-        database_name,
-    )
-    measure(
-        timings,
-        "02b_update_product_offering_category_po_id",
-        update_product_offering_category_po_id,
-        cursor,
-        connection,
-        database_name,
-    )
-
-    measure(
-        timings,
-        "03_generate_product_offering_char_value",
-        call_procedure,
-        cursor,
-        connection,
-        "generate_product_offering_char_value",
-        (batch_id, actor),
-    )
-    measure(
-        timings,
-        "04_generate_product_offering_variant_unpivot",
-        call_procedure,
-        cursor,
-        connection,
-        "generate_product_offering_variant_unpivot",
-        (),
-    )
-    measure(
-        timings,
-        "05_generate_product_offering_variant",
-        call_procedure,
-        cursor,
-        connection,
-        "generate_product_offering_variant",
-        (batch_id, actor),
-    )
-    measure(
-        timings,
-        "06_translate_variant_id",
-        timed_translation_job,
-        cursor,
-        connection,
-        VARIANT_JOB,
-        translator,
-        database_name,
-    )
-    measure(
-        timings,
-        "07_generate_product_offering_price",
-        call_procedure,
-        cursor,
-        connection,
-        "generate_product_offering_price",
-        (batch_id, actor),
-    )
-    measure(
-        timings,
-        "08_generate_promotion",
-        call_procedure,
-        cursor,
-        connection,
-        "generate_promotion",
-        (batch_id, actor, 0),
-    )
-    measure(
-        timings,
-        "09_translate_promotion_id",
-        timed_translation_job,
-        cursor,
-        connection,
-        PROMOTION_JOB,
-        translator,
-        database_name,
-    )
-    measure(
-        timings,
-        "10_generate_contract_master",
-        call_procedure,
-        cursor,
-        connection,
-        "generate_contract_master",
-        (batch_id, actor, 0),
-    )
-    measure(
-        timings,
-        "11_generate_campaign_master",
-        call_procedure,
-        cursor,
-        connection,
-        "generate_campaign_master",
-        (batch_id, actor, 0),
-    )
-    measure(
-        timings,
-        "12_generate_lov",
-        call_procedure,
-        cursor,
-        connection,
-        "generate_lov",
-        (),
-    )
+    step(2, "02_translate_po_id", timed_translation_job, cursor, connection, PO_JOB, translator, database_name)
+    step(3, "02b_update_product_offering_category_po_id", update_product_offering_category_po_id, cursor, connection, database_name)
+    step(3, "03_generate_product_offering_char_value", call_procedure, cursor, connection, "generate_product_offering_char_value", (batch_id, actor))
+    step(4, "04_generate_product_offering_variant_unpivot", call_procedure, cursor, connection, "generate_product_offering_variant_unpivot", ())
+    step(5, "05_generate_product_offering_variant", call_procedure, cursor, connection, "generate_product_offering_variant", (batch_id, actor))
+    step(6, "06_translate_variant_id", timed_translation_job, cursor, connection, VARIANT_JOB, translator, database_name)
+    step(7, "07_generate_product_offering_price", call_procedure, cursor, connection, "generate_product_offering_price", (batch_id, actor))
+    step(8, "08_generate_promotion", call_procedure, cursor, connection, "generate_promotion", (batch_id, actor, 0))
+    step(9, "09_translate_promotion_id", timed_translation_job, cursor, connection, PROMOTION_JOB, translator, database_name)
+    step(10, "10_generate_contract_master", call_procedure, cursor, connection, "generate_contract_master", (batch_id, actor, 0))
+    step(11, "11_generate_campaign_master", call_procedure, cursor, connection, "generate_campaign_master", (batch_id, actor, 0))
+    step(12, "12_generate_lov", call_procedure, cursor, connection, "generate_lov", ())
 
 
 def call_procedure(cursor, connection, procedure_name: str, args: tuple) -> list[dict]:
     placeholders = ", ".join(["%s"] * len(args))
     sql = f"CALL {procedure_name}({placeholders})" if args else f"CALL {procedure_name}()"
 
-    print(f"\n=== CALL {procedure_name} ===")
+    print(f"\n=== CALL {procedure_name} ===", flush=True)
     started_at = time.perf_counter()
-    cursor.execute(sql, args)
-    result_rows = print_result_sets(cursor)
-    connection.commit()
+
+    done = threading.Event()
+
+    def spin():
+        for frame in itertools.cycle("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"):
+            if done.is_set():
+                break
+            elapsed = time.perf_counter() - started_at
+            sys.stderr.write(f"\r{frame} {format_duration(elapsed)} elapsed...")
+            sys.stderr.flush()
+            time.sleep(0.1)
+        sys.stderr.write("\r" + " " * 30 + "\r")
+        sys.stderr.flush()
+
+    spinner = threading.Thread(target=spin, daemon=True)
+    spinner.start()
+    try:
+        cursor.execute(sql, args)
+        result_rows = print_result_sets(cursor)
+        connection.commit()
+    finally:
+        done.set()
+        spinner.join()
+
     print(f"Procedure completed in {format_duration(time.perf_counter() - started_at)}")
     return result_rows
 
@@ -515,3 +459,4 @@ def format_duration(seconds: float) -> str:
 
 if __name__ == "__main__":
     main()
+

@@ -276,7 +276,7 @@ BEGIN
         sc.`Characteristics ID`,
         sc.`name`,
         'List',
-        clean_name(pmv.char_value),
+        clean_name(COALESCE(pmv.char_value, cmap.default_value)),
         NULL,
 				batch_id,
 				v_actor,
@@ -307,15 +307,15 @@ BEGIN
         ON  cmap.char_id = sc.`Characteristics ID`
     JOIN tmp_po_matcode pm_map
         ON  pm_map.PO_ID = po.PO_ID
-    JOIN tmp_pm_vals pmv
+    LEFT JOIN tmp_pm_vals pmv
         ON  pmv.MAT_CODE = pm_map.MAT_CODE
         AND pmv.char_id  = sc.`Characteristics ID`
-    WHERE pmv.char_value IS NOT NULL
+    WHERE COALESCE(pmv.char_value, cmap.default_value) IS NOT NULL
       AND NOT EXISTS (
           SELECT 1
           FROM characteristics_value cv
           WHERE cv.`Characteristics ID` = sc.`Characteristics ID`
-            AND cv.`value`              = clean_name(pmv.char_value)
+            AND cv.`value`              = clean_name(COALESCE(pmv.char_value, cmap.default_value))
       );
 
 		-- Step 5b: Sync ค่าใหม่เข้า char_value
@@ -391,7 +391,7 @@ BEGIN
 				sc.`Characteristics ID`,
 				sc.`name`,
 				'List',
-				clean_name(pmv.char_value),
+				clean_name(COALESCE(pmv.char_value, cmap.default_value)),
 				NULL,
 				batch_id,
 				v_actor,
@@ -424,15 +424,15 @@ BEGIN
 				ON  cmap.char_id = sc.`Characteristics ID`
 		JOIN tmp_po_matcode pm_map
 				ON  pm_map.PO_ID = po.PO_ID
-		JOIN tmp_pm_vals pmv
+		LEFT JOIN tmp_pm_vals pmv
 				ON  pmv.MAT_CODE = pm_map.MAT_CODE
 				AND pmv.char_id  = sc.`Characteristics ID`
-		WHERE pmv.char_value IS NOT NULL
+		WHERE COALESCE(pmv.char_value, cmap.default_value) IS NOT NULL
 			AND NOT EXISTS (
 					SELECT 1
 					FROM char_value cv
 					WHERE cv.`Characteristics ID` = sc.`Characteristics ID`
-						AND cv.`value`              = clean_name(pmv.char_value)
+						AND cv.`value`              = clean_name(COALESCE(pmv.char_value, cmap.default_value))
 			);
 
     -- Step 6: Save snapshot (upsert แทน drop+create)
@@ -651,4 +651,5 @@ BEGIN
     DROP TEMPORARY TABLE IF EXISTS tmp_po_product_line;
 
 END$$
-DELIMITER ;
+
+DELIMITER;

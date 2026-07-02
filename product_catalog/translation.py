@@ -398,9 +398,33 @@ def run_translation_job(
         print("No rows to update")
         return
 
+    ensure_id_column_index(cursor, connection, job)
     update_rows(cursor, job, update_data)
     connection.commit()
     print("Update completed")
+
+
+def ensure_id_column_index(cursor, connection, job: TranslationJob) -> None:
+    index_name = f"idx_translation_{job.id_column}"
+    cursor.execute(
+        """
+        SELECT COUNT(*) AS cnt
+        FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = %s
+          AND INDEX_NAME = %s
+        """,
+        (job.table_name, index_name),
+    )
+    if cursor.fetchone()["cnt"] > 0:
+        return
+
+    print(f"Adding index {index_name} on {job.table_name}.{job.id_column} ...")
+    cursor.execute(
+        f"ALTER TABLE {job.table_name} ADD INDEX {index_name} ({job.id_column}(255))"
+    )
+    connection.commit()
+    print("Index added")
 
 
 def ensure_original_column(cursor, connection, database_name: str, job: TranslationJob) -> None:

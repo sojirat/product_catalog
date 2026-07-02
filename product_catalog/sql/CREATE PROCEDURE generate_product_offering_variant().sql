@@ -33,7 +33,7 @@ BEGIN
     SET @v_sql = CONCAT(
         'CREATE TABLE tbl_variant_wide AS ',
         'SELECT `rn`, `Product ID`, `SKU`, ',
-        '    CONCAT(`Product ID`, ''_'', sorted_vals) AS variant_base ',
+        '    CONCAT(`Product ID`, ''_'', clean_id(sorted_vals)) AS variant_base ',
         'FROM ( ',
         '    SELECT DISTINCT `rn`, `Product ID`, `SKU`, ',
         '        (SELECT GROUP_CONCAT(val ORDER BY val ASC SEPARATOR ''_'') ',

@@ -189,11 +189,15 @@ def reset_and_load_product_mst(cursor, connection, database_name: str, run_confi
             "DROP TABLE IF EXISTS tbl_promotion",
             "DROP TABLE IF EXISTS tbl_campaign_master",
             "DROP TABLE IF EXISTS tbl_contract_master",
+            "DROP TABLE IF EXISTS tbl_cdm_master",
+            "DROP TABLE IF EXISTS tbl_ussd_master",
             "DROP TABLE IF EXISTS generate_all_log",
             "DROP TABLE IF EXISTS ingest_batch_detail",
             "DROP TABLE IF EXISTS ingest_batch",
             "DROP VIEW IF EXISTS v_master_meta_campaign_master",
             "DROP VIEW IF EXISTS v_master_meta_contract_master",
+            "DROP VIEW IF EXISTS v_master_meta_cdm_master",
+            "DROP VIEW IF EXISTS v_master_meta_ussd_master",
             "DROP VIEW IF EXISTS v_product_mst",
             "DROP VIEW IF EXISTS v_product_offering",
             "DROP VIEW IF EXISTS v_product_offering_category",
@@ -215,6 +219,8 @@ def reset_and_load_product_mst(cursor, connection, database_name: str, run_confi
             "DROP VIEW IF EXISTS v_promotion_meta_ext_value_allowed_airtime_installment",
             "DROP VIEW IF EXISTS v_promotion_meta_ext_value_contract_detail",
             "DROP VIEW IF EXISTS v_promotion_meta_ext_value_extra_document"
+            "DROP VIEW IF EXISTS v_promotion_meta_ext_value_cdm_detail"
+            "DROP VIEW IF EXISTS v_promotion_meta_ext_value_compensation_detail"
         ],
     )
     connection.commit()
@@ -330,7 +336,10 @@ def run_generate_flow(
     step(9, "09_translate_promotion_id", timed_translation_job, cursor, connection, PROMOTION_JOB, translator, database_name)
     step(10, "10_generate_contract_master", call_procedure, cursor, connection, "generate_contract_master", (batch_id, actor, 0))
     step(11, "11_generate_campaign_master", call_procedure, cursor, connection, "generate_campaign_master", (batch_id, actor, 0))
-    step(12, "12_generate_lov", call_procedure, cursor, connection, "generate_lov", ())
+    step(12, "12_generate_cdm_master", call_procedure, cursor, connection, "generate_cdm_master", (batch_id, actor, 0))
+    step(13, "13_generate_ussd_master", call_procedure, cursor, connection, "generate_ussd_master", (batch_id, actor, 0))
+    step(14, "14_generate_extension_cpc", call_procedure, cursor, connection, "generate_extension_cpc", ())
+    step(15, "15_generate_lov", call_procedure, cursor, connection, "generate_lov", ())
 
 
 def call_procedure(cursor, connection, procedure_name: str, args: tuple) -> list[dict]:

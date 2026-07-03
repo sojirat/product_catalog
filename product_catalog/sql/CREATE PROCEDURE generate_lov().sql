@@ -21,7 +21,7 @@ BEGIN
         SELECT DISTINCT `AIS Template Excel File`
         FROM list_of_value_mapping
         WHERE `AIS Template Excel File` IS NOT NULL
-          AND TRIM(`AIS Template Excel File`) <> ''
+          AND TRIM(`AIS Template Excel File`) <> '' COLLATE utf8mb4_general_ci
         ORDER BY `AIS Template Excel File`;
  
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET done_tpl = TRUE;
@@ -80,7 +80,7 @@ BEGIN
                       AND column_name  = v_column
                 ) THEN
  
-                    IF v_sql <> '' THEN
+                    IF v_sql <> '' COLLATE utf8mb4_general_ci THEN
                         SET v_sql = CONCAT(v_sql, '\n    UNION ALL\n    ');
                     END IF;
  
@@ -88,10 +88,10 @@ BEGIN
                         v_sql,
                         'SELECT DISTINCT\n',
                         '        ''', REPLACE(v_column, '''', ''''''), ''' AS lovName,\n',
-                        '        TRIM(`', REPLACE(v_column, '`', '``'), '`)  AS lovValue\n',
+                        '        TRIM(`', REPLACE(v_column, '`', '``'), '`) COLLATE utf8mb4_general_ci AS lovValue\n',
                         '    FROM `', REPLACE(v_table, '`', '``'), '`\n',
                         '    WHERE `', REPLACE(v_column, '`', '``'), '` IS NOT NULL\n',
-                        '      AND TRIM(`', REPLACE(v_column, '`', '``'), '`) <> '''''
+                        '      AND TRIM(`', REPLACE(v_column, '`', '``'), '`) COLLATE utf8mb4_general_ci <> '''''
                     );
  
                 END IF;
@@ -101,7 +101,7 @@ BEGIN
         END;
         /* -------------------------------------------------------------- */
  
-        IF v_sql <> '' THEN
+        IF v_sql <> '' COLLATE utf8mb4_general_ci THEN
             /* DROP existing view first, then CREATE */
             SET @drop_view = CONCAT('DROP VIEW IF EXISTS `', v_view_name, '`');
             PREPARE s FROM @drop_view;

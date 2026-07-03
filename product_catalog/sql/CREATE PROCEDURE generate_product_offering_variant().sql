@@ -101,10 +101,16 @@ BEGIN
 		-- Step 5a: Build new rows เข้า temp ก่อน
 		DROP TEMPORARY TABLE IF EXISTS tmp_variant_new;
 
-		SET @v_price_group_col = IF(@v_has_price_group > 0, 
-				'u.price_group_is_default', 
+		SET @v_price_group_col = IF(@v_has_price_group > 0,
+				'u.price_group_is_default',
 				'0'
 		);
+
+		-- user variable สำหรับ REGEXP_REPLACE replacement
+		-- ใช้ @v_of_mg_rep แทนการ embed '$1' ใน string literal
+		-- เพราะ '$1' ใน prepared statement ถูก MySQL interpret เป็น parameter marker
+		SET @v_of_mg_pat = '_of_mg([0-9]+)';
+		SET @v_of_mg_rep = '-of_mg$1';
 
 		SET @v_sql = CONCAT(
 				'CREATE TEMPORARY TABLE tmp_variant_new AS ',
@@ -122,7 +128,7 @@ BEGIN
 				'        c.`rn`, ',
 				'        c.`Product ID`, ',
 				'        c.`SKU`, ',
-				'        REGEXP_REPLACE(clean_id(c.variant_base), ''_of_mg([0-9]+)'', ''-of_mg$1'') AS variant_base, ',
+				'        REGEXP_REPLACE(clean_id(c.variant_base), @v_of_mg_pat, @v_of_mg_rep) AS variant_base, ',
 				'        c.char_id, ',
 				'        sc.`name`, ',
 				'        c.char_value, ',

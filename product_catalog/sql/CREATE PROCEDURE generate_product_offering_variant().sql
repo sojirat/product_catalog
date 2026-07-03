@@ -122,7 +122,7 @@ BEGIN
 				'        c.`rn`, ',
 				'        c.`Product ID`, ',
 				'        c.`SKU`, ',
-				'        REGEXP_REPLACE(clean_id(c.variant_base), ''_of_mg([0-9]+)'', ''-of_mg\\1'') AS variant_base, ',
+				'        REGEXP_REPLACE(clean_id(c.variant_base), ''_of_mg([0-9]+)'', ''-of_mg$1'') AS variant_base, ',
 				'        c.char_id, ',
 				'        sc.`name`, ',
 				'        c.char_value, ',

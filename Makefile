@@ -29,6 +29,7 @@ step12: ; $(RUN) --skip-to=12
 step13: ; $(RUN) --skip-to=13
 step14: ; $(RUN) --skip-to=14
 step15: ; $(RUN) --skip-to=15
+step16: ; $(RUN) --skip-to=16
 
 export:
 	EXPORT_EXCEL_FILES="$(FILES)" $(PYTHON) product_catalog/export_template_mapping.py

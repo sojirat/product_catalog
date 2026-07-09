@@ -67,7 +67,9 @@ def main() -> None:
                 print("No mapping rows matched export filter")
                 return
 
-            datasets = measure(
+            mapping_rows = inject_missing_union_target_rows(mapping_rows)
+
+            raw_datasets = measure(
                 timings,
                 "load_datasets",
                 load_datasets,
@@ -97,39 +99,43 @@ def main() -> None:
             )
 
             #
-            # EXPORT XLSX
+            # EXPORT XLSX (per raw file — each gets its own merged datasets)
             #
             for output_file, rows in rows_by_raw_file.items():
                 group = file_group_map.get(output_file, "")
                 output_path = (xlsx_dir / group / output_file) if group else (xlsx_dir / output_file)
                 output_path.parent.mkdir(parents=True, exist_ok=True)
+                effective_datasets = build_effective_datasets(rows, raw_datasets, mapping_rows)
                 measure(
                     timings,
                     f"export_xlsx:{output_file}",
                     export_workbook,
                     output_path,
                     rows,
-                    datasets,
+                    effective_datasets,
                     "Template File(Sheet Name)",
                     header_template_workbook,
                 )
 
             #
-            # CONVERT XLSX -> CSV
+            # CONVERT XLSX -> CSV (per raw file — same effective datasets)
             #
+            rows_by_raw_file_with_datasets = {
+                output_file: (rows, build_effective_datasets(rows, raw_datasets, mapping_rows))
+                for output_file, rows in rows_by_raw_file.items()
+            }
             measure(
                 timings,
                 "convert_xlsx_to_csv",
                 export_csv_files,
                 csv_dir,
                 xlsx_dir,
-                rows_by_raw_file,
-                datasets,
+                rows_by_raw_file_with_datasets,
                 file_group_map,
             )
 
             #
-            # EXPORT COMBINED WORKBOOKS
+            # EXPORT COMBINED WORKBOOKS (per excel file — each gets its own merged datasets)
             #
             measure(
                 timings,
@@ -137,7 +143,8 @@ def main() -> None:
                 export_combined_workbooks,
                 output_dir,
                 rows_by_excel_file,
-                datasets,
+                raw_datasets,
+                mapping_rows,
                 get_excel_template_dir(),
             )
 
@@ -240,6 +247,10 @@ def fetch_mapping_rows(
     mapping_rows = []
 
     for row in cursor.fetchall():
+        is_active = row.get("isActive", 1)
+        if not is_active:
+            continue
+
         database_name = text_value(
             row.get("DATABASE NAME")
         )
@@ -249,9 +260,78 @@ def fetch_mapping_rows(
 
         validate_identifier(database_name)
 
+        union_name = text_value(row.get("UNOIN", ""))
+        if union_name:
+            validate_identifier(union_name)
+
         mapping_rows.append(row)
 
     return mapping_rows
+
+
+def inject_missing_union_target_rows(
+    mapping_rows: list[dict],
+) -> list[dict]:
+    """Auto-create target rows for UNOIN values that have no matching DATABASE NAME row.
+
+    When a row has UNOIN = X but no row exists with DATABASE NAME = X,
+    synthesize a target row by copying the source row's sheet/file metadata
+    and replacing DATABASE NAME with X and clearing UNOIN.
+    The target Excel file is inferred from the UNOIN target name by finding
+    rows in the non-UNION group that share the same AIS Template Excel File prefix,
+    or falls back to copying the source row's Excel file metadata.
+    """
+    existing_db_names = {
+        text_value(row.get("DATABASE NAME"))
+        for row in mapping_rows
+    }
+
+    # Find rows that are union targets but have no own row yet
+    injected = list(mapping_rows)
+    seen_injected = set()
+
+    for row in mapping_rows:
+        union_name = text_value(row.get("UNOIN", ""))
+        if not union_name:
+            continue
+        if union_name in existing_db_names:
+            continue
+        if union_name in seen_injected:
+            continue
+
+        seen_injected.add(union_name)
+
+        # Find the target Excel file by looking for non-UNION rows whose
+        # DATABASE NAME is referenced as UNOIN target elsewhere
+        # Fall back: find a non-UNION row with the same EXCEL SHEET NAME
+        target_excel_row = next(
+            (
+                r for r in mapping_rows
+                if not text_value(r.get("UNOIN", ""))
+                and text_value(r.get("EXCEL SHEET NAME")) == text_value(row.get("EXCEL SHEET NAME"))
+            ),
+            None,
+        )
+
+        synthetic = dict(row)
+        synthetic["DATABASE NAME"] = union_name
+        synthetic["UNOIN"] = ""
+
+        if target_excel_row:
+            synthetic["EXCEL File"] = target_excel_row["EXCEL File"]
+            synthetic["AIS Template Excel File"] = target_excel_row["AIS Template Excel File"]
+            synthetic["SHEET NO"] = target_excel_row.get("SHEET NO", row.get("SHEET NO"))
+        else:
+            # No matching row found — keep source Excel file as fallback
+            pass
+
+        injected.append(synthetic)
+        print(
+            f"Injected synthetic target row: "
+            f"{union_name} -> {text_value(synthetic['EXCEL File'])}"
+        )
+
+    return injected
 
 
 def filter_mapping_rows_by_excel_file(
@@ -261,12 +341,39 @@ def filter_mapping_rows_by_excel_file(
     if not excel_file_filter:
         return mapping_rows
 
-    return [
+    # Find UNION target view names from the filtered rows
+    filtered = [
         row
         for row in mapping_rows
         if build_excel_output_file_name(
             text_value(row.get("EXCEL File"))
         ) in excel_file_filter
+    ]
+
+    union_targets = {
+        text_value(row.get("UNOIN", ""))
+        for row in filtered
+        if text_value(row.get("UNOIN", ""))
+    }
+
+    if not union_targets:
+        return filtered
+
+    # Find which Excel files contain the UNION target views and add those rows too
+    target_excel_files = {
+        build_excel_output_file_name(text_value(row.get("EXCEL File")))
+        for row in mapping_rows
+        if text_value(row.get("DATABASE NAME")) in union_targets
+    }
+
+    expanded_filter = excel_file_filter | target_excel_files
+
+    return [
+        row
+        for row in mapping_rows
+        if build_excel_output_file_name(
+            text_value(row.get("EXCEL File"))
+        ) in expanded_filter
     ]
 
 
@@ -293,20 +400,44 @@ def load_datasets(
     cursor,
     mapping_rows: list[dict],
 ) -> dict[str, tuple[list[str], list[dict]]]:
+    """Load raw datasets for all views referenced in mapping_rows (no merging).
+
+    UNION target views that don't exist in the DB are created as empty views
+    (using the source view's structure) and tracked for cleanup afterwards.
+    """
     datasets = {}
 
-    database_names = sorted({
+    # Build map: union_target -> source_view (for auto-creating missing targets)
+    union_source_for: dict[str, str] = {}
+    for row in mapping_rows:
+        source = text_value(row.get("DATABASE NAME"))
+        union_name = text_value(row.get("UNOIN", ""))
+        if source and union_name:
+            union_source_for[union_name] = source
+
+    all_database_names = sorted({
         text_value(row.get("DATABASE NAME"))
         for row in mapping_rows
-    })
+    } | set(union_source_for.keys()))
 
-    for database_name in database_names:
+    temp_views: list[str] = []
+
+    for database_name in all_database_names:
         if not database_name:
             continue
 
         if not database_object_exists(cursor, database_name):
-            print(f"Skip missing database object: {database_name}")
-            continue
+            source = union_source_for.get(database_name)
+            if source and database_object_exists(cursor, source):
+                cursor.execute(
+                    f"CREATE VIEW {database_name} AS "
+                    f"SELECT * FROM {source} WHERE 1=0"
+                )
+                temp_views.append(database_name)
+                print(f"Created temporary empty view: {database_name}")
+            else:
+                print(f"Skip missing database object: {database_name}")
+                continue
 
         started_at = time.perf_counter()
 
@@ -315,10 +446,7 @@ def load_datasets(
         columns = [column[0] for column in cursor.description]
         rows = cursor.fetchall()
 
-        datasets[database_name] = (
-            columns,
-            rows,
-        )
+        datasets[database_name] = (columns, rows)
 
         print(
             f"Selected {database_name}: "
@@ -326,7 +454,56 @@ def load_datasets(
             f"{format_duration(time.perf_counter() - started_at)}"
         )
 
+    for view_name in temp_views:
+        cursor.execute(f"DROP VIEW IF EXISTS {view_name}")
+        print(f"Dropped temporary view: {view_name}")
+
     return datasets
+
+
+def build_effective_datasets(
+    mapping_rows: list[dict],
+    raw_datasets: dict[str, tuple[list[str], list[dict]]],
+    all_mapping_rows: list[dict] | None = None,
+) -> dict[str, tuple[list[str], list[dict]]]:
+    """Return datasets keyed by effective name for a specific set of mapping rows.
+
+    UNION rows (rows where UNOIN is set) are looked up from all_mapping_rows so
+    that union merging works even when mapping_rows has already filtered them out.
+    """
+    # Start with copies of the raw datasets referenced by these rows
+    effective: dict[str, tuple[list[str], list[dict]]] = {}
+    for row in mapping_rows:
+        key = text_value(row.get("DATABASE NAME"))
+        if key and key in raw_datasets and key not in effective:
+            cols, rows = raw_datasets[key]
+            effective[key] = (cols, list(rows))
+
+    # Find union rows that target any of the databases in this export set
+    target_names = set(effective.keys())
+    union_source_rows = [
+        row for row in (all_mapping_rows or [])
+        if text_value(row.get("UNOIN", "")) in target_names
+    ]
+
+    for row in union_source_rows:
+        source_name = text_value(row.get("DATABASE NAME"))
+        union_name = text_value(row.get("UNOIN", ""))
+        if source_name not in raw_datasets or union_name not in effective:
+            continue
+
+        _, src_rows = raw_datasets[source_name]
+        tgt_columns, tgt_rows = effective[union_name]
+
+        merged = list(tgt_rows) + list(src_rows)
+        effective[union_name] = (tgt_columns, merged)
+
+        print(
+            f"Merged {source_name} ({len(src_rows)} rows) "
+            f"into {union_name} (total {len(merged)} rows)"
+        )
+
+    return effective
 
 
 #
@@ -339,6 +516,10 @@ def group_mapping_rows_by_raw_file(
     rows_by_file = defaultdict(list)
 
     for row in mapping_rows:
+        # Rows with UNOIN contribute data to the union target — skip their own file
+        if text_value(row.get("UNOIN", "")):
+            continue
+
         output_file = build_output_file_name(
             text_value(row["Raw data Output File"]),
             timestamp,
@@ -355,6 +536,9 @@ def build_output_file_group_map(
 ) -> dict[str, str]:
     result = {}
     for row in mapping_rows:
+        if text_value(row.get("UNOIN", "")):
+            continue
+
         output_file = build_output_file_name(
             text_value(row["Raw data Output File"]),
             timestamp,
@@ -371,6 +555,10 @@ def group_mapping_rows_by_excel_file(
     rows_by_file = defaultdict(list)
 
     for row in mapping_rows:
+        # Rows with UNOIN contribute data to the union target — skip their own Excel file
+        if text_value(row.get("UNOIN", "")):
+            continue
+
         excel_file = build_excel_output_file_name(
             text_value(row["EXCEL File"])
         )
@@ -494,11 +682,14 @@ def export_workbook(
         database_name = text_value(
             row["DATABASE NAME"]
         )
+        union_name = text_value(row.get("UNOIN", ""))
+        # When UNION is set, data was merged into the union target; look it up there
+        effective_name = union_name if union_name else database_name
 
-        if database_name not in datasets:
+        if effective_name not in datasets:
             print(
                 f"Skip missing dataset "
-                f"for {database_name}"
+                f"for {effective_name}"
             )
             continue
 
@@ -529,14 +720,14 @@ def export_workbook(
         if header_template_workbook and header_template_sheet_name:
             write_dataset_to_template_worksheet(
                 worksheet,
-                datasets[database_name],
+                datasets[effective_name],
                 header_template_workbook,
                 header_template_sheet_name,
             )
         else:
             write_dataset_to_worksheet(
                 worksheet,
-                datasets[database_name],
+                datasets[effective_name],
             )
 
     if not workbook.sheetnames:
@@ -676,18 +867,16 @@ def write_dataset_to_worksheet(
 def export_csv_files(
     csv_dir: Path,
     xlsx_dir: Path,
-    rows_by_file: dict[str, list[dict]],
-    datasets: dict[str, tuple[list[str], list[dict]]],
+    rows_by_file: dict[str, tuple[list[dict], dict[str, tuple[list[str], list[dict]]]]],
     file_group_map: dict[str, str] | None = None,
 ) -> None:
-    # Convert the raw xlsx exports from xlsx_dir into CSV.
-    # Use MySQL dataset headers and rows whenever possible so CSV output
-    # is not influenced by template header rows in the workbook.
+    # rows_by_file maps output_file -> (mapping_rows, effective_datasets)
+    # effective_datasets are already union-merged for this specific raw file.
     csv_started_at = time.perf_counter()
 
     processed_files = set()
 
-    for xlsx_file_name, mapping_rows in rows_by_file.items():
+    for xlsx_file_name, (mapping_rows, datasets) in rows_by_file.items():
         if xlsx_file_name in processed_files:
             continue
 
@@ -717,7 +906,9 @@ def export_csv_files(
             database_name = text_value(
                 mapping_rows[0]["DATABASE NAME"]
             )
-            dataset = datasets.get(database_name)
+            union_name = text_value(mapping_rows[0].get("UNOIN", ""))
+            effective_name = union_name if union_name else database_name
+            dataset = datasets.get(effective_name)
 
             if dataset is not None:
                 write_csv_from_dataset(
@@ -1002,7 +1193,8 @@ def convert_xlsx_to_csv(
 def export_combined_workbooks(
     output_dir: Path,
     rows_by_excel_file: dict[str, list[dict]],
-    datasets: dict[str, tuple[list[str], list[dict]]],
+    raw_datasets: dict[str, tuple[list[str], list[dict]]],
+    all_mapping_rows: list[dict],
     template_dir: Path | None,
 ) -> None:
     combined_started_at = time.perf_counter()
@@ -1015,6 +1207,7 @@ def export_combined_workbooks(
     )
 
     for excel_file, rows in rows_by_excel_file.items():
+        datasets = build_effective_datasets(rows, raw_datasets, all_mapping_rows)
         file_started_at = time.perf_counter()
 
         output_path = output_dir / excel_file
@@ -1040,8 +1233,10 @@ def export_combined_workbooks(
             database_name = text_value(
                 row["DATABASE NAME"]
             )
+            union_name = text_value(row.get("UNOIN", ""))
+            effective_name = union_name if union_name else database_name
 
-            if database_name not in datasets:
+            if effective_name not in datasets:
                 continue
 
             sheet_name = clean_sheet_name(
@@ -1063,21 +1258,21 @@ def export_combined_workbooks(
             if header_template_workbook and header_template_sheet_name:
                 write_dataset_to_template_worksheet(
                     worksheet,
-                    datasets[database_name],
+                    datasets[effective_name],
                     header_template_workbook,
                     header_template_sheet_name,
                 )
             elif template_path:
                 write_dataset_to_template_worksheet(
                     worksheet,
-                    datasets[database_name],
+                    datasets[effective_name],
                     None,
                     "",
                 )
             else:
                 write_dataset_to_worksheet(
                     worksheet,
-                    datasets[database_name],
+                    datasets[effective_name],
                 )
 
         if not workbook.sheetnames:

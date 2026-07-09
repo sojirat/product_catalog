@@ -217,7 +217,6 @@ def reset_and_load_product_mst(cursor, connection, database_name: str, run_confi
             "DROP VIEW IF EXISTS v_product_offering_with_product_offering_price",
             "DROP VIEW IF EXISTS v_promotion",
             "DROP VIEW IF EXISTS v_promotion_action",
-            "DROP VIEW IF EXISTS v_promotion_master_extension",
             "DROP VIEW IF EXISTS v_promotion_meta_ext_value_allowed_airtime_installment",
             "DROP VIEW IF EXISTS v_promotion_meta_ext_value_contract_detail",
             "DROP VIEW IF EXISTS v_promotion_meta_ext_value_extra_document",

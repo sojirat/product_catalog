@@ -339,10 +339,11 @@ def run_generate_flow(
     step(11, "11_generate_campaign_master", call_procedure, cursor, connection, "generate_campaign_master", (batch_id, actor, 0))
     step(12, "12_generate_cdm_master", call_procedure, cursor, connection, "generate_cdm_master", (batch_id, actor, 0))
     step(13, "13_generate_ussd_master", call_procedure, cursor, connection, "generate_ussd_master", (batch_id, actor, 0))
-    step(14, "14_generate_installment_master", call_procedure, cursor, connection, "generate_installment_master", (batch_id, actor, 0))
+    # step(14, "14_generate_installment_master", call_procedure, cursor, connection, "generate_installment_master", (batch_id, actor, 0))
     step(15, "15_generate_extension_cpc", call_procedure, cursor, connection, "generate_extension_cpc", ())
     step(16, "16_generate_promotion_map_extension", call_procedure, cursor, connection, "generate_promotion_map_extension", ())
     step(17, "17_generate_lov", call_procedure, cursor, connection, "generate_lov", ())
+    step(18, "18_generate_extension_group_type", call_procedure, cursor, connection, "generate_extension_group_type", ())
 
 
 def call_procedure(cursor, connection, procedure_name: str, args: tuple) -> list[dict]:

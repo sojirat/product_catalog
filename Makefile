@@ -1,4 +1,4 @@
-.PHONY: run skip export setup clean-pyc \
+.PHONY: run skip export setup clean-pyc po-group \
 	step1 step2 step3 step4 step5 step6 step7 step8 step9 step10 step11 step12 step13 step14 step15
 
 VENV := .venv
@@ -32,6 +32,9 @@ step15: ; $(RUN) --skip-to=15
 step16: ; $(RUN) --skip-to=16
 step17: ; $(RUN) --skip-to=17
 step18: ; $(RUN) --skip-to=18
+
+po-group:
+	$(PYTHON) product_catalog/po_grouper.py
 
 export:
 	EXPORT_EXCEL_FILES="$(FILES)" $(PYTHON) product_catalog/export_template_mapping.py

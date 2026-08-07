@@ -48,3 +48,29 @@ setup:
 
 clean-pyc:
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +
+
+# ---------------------------------------------------------------------------
+# Docker (see DOCKER.md)
+# ---------------------------------------------------------------------------
+.PHONY: docker-build docker-init docker-shell docker-down docker-run
+
+docker-build:
+	docker compose build
+
+# Starts MySQL and installs stored procedures/functions from product_catalog/sql/.
+# Re-run any time after adding/changing a .sql file (safe: DROP IF EXISTS + CREATE).
+docker-init:
+	docker compose up -d mysql
+	docker compose run --rm db-init
+
+docker-shell:
+	docker compose run --rm app bash
+
+docker-down:
+	docker compose down
+
+# Run any Makefile target (or arbitrary command) inside the app container, e.g.:
+#   make docker-run CMD="make run"
+#   make docker-run CMD="make export FILES=a.xlsx"
+docker-run:
+	docker compose run --rm app $(CMD)

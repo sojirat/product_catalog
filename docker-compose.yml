@@ -1,0 +1,62 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: product_catalog_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: changeme
+      MYSQL_DATABASE: product_catalog
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-pchangeme"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # One-shot job: installs stored procedures/functions from product_catalog/sql/
+  # into MySQL. Runs once after mysql is healthy, then exits. Safe to re-run
+  # (every object file does DROP ... IF EXISTS before CREATE).
+  db-init:
+    build: .
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_USER: root
+      DB_PASSWORD: changeme
+      DB_NAME: product_catalog
+    volumes:
+      - ./product_catalog:/app/product_catalog
+    command: ["python", "product_catalog/install_sql.py"]
+
+  app:
+    build: .
+    depends_on:
+      mysql:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+    environment:
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_USER: root
+      DB_PASSWORD: changeme
+      DB_NAME: product_catalog
+    volumes:
+      - ./product_catalog:/app/product_catalog
+      - ./template:/app/template
+      - ./export:/app/export
+      - ./.translation_cache.json:/app/.translation_cache.json
+      - ./typhoon_cat_cache.json:/app/typhoon_cat_cache.json
+      - ./typhoon_series_cache.json:/app/typhoon_series_cache.json
+    stdin_open: true
+    tty: true
+    command: ["bash"]
+
+volumes:
+  mysql_data:

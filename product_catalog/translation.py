@@ -178,6 +178,11 @@ def connect_database(db_config: DatabaseConfig):
         use_unicode=True,
         cursorclass=pymysql.cursors.DictCursor,
         autocommit=False,
+        connect_timeout=10,
+        # Long-running stored procedures can take a long time to complete.
+        # Increase read/write timeouts to avoid premature client-side disconnects.
+        read_timeout=7200,
+        write_timeout=7200,
     )
 
     with connection.cursor() as cursor:

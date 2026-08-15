@@ -3,6 +3,7 @@ import itertools
 import re
 import sys
 import threading
+import pymysql
 import time
 from pathlib import Path
 
@@ -50,6 +51,17 @@ PROMOTION_JOB = TranslationJob(
     original_column="PROMOTION_ID_ORIGINAL",
     transform=translate_promotion_id,
 )
+
+# Map procedures to one or more output tables that indicate completion.
+# The watcher will probe these tables and, if they contain rows, assume the
+# procedure already finished on the server and close the client connection
+# to force the client to recover and continue.
+PROC_OUTPUT_TABLES = {
+    "generate_product_offering_variant": ["tbl_product_offering_variant"],
+    "generate_product_offering": ["tbl_product_offering"],
+    "generate_product_offering_variant_unpivot": ["tbl_product_offering_variant_unpivot"],
+    "generate_product_offering_char_value": ["tbl_product_offering_char_value"],
+}
 
 
 def main() -> None:
@@ -354,6 +366,64 @@ def call_procedure(cursor, connection, procedure_name: str, args: tuple) -> list
 
     done = threading.Event()
 
+    # Watcher thread: if the server no longer shows this connection id
+    # (procedure finished on server side) but the client is still blocked
+    # reading, we can close the client connection to force an error and
+    # recover. This uses a separate DB connection to poll processlist.
+    def watcher(conn_id: int, proc_name: str | None = None, check_interval: float = 5.0, max_checks: int = 60):
+        try:
+            from translation import load_database_config, connect_database
+            config = load_database_config(BASE_DIR / ".env")
+            probe_conn = connect_database(config)
+            try:
+                with probe_conn.cursor() as probe_cur:
+                    for _ in range(max_checks):
+                        if done.is_set():
+                            return
+                        probe_cur.execute(
+                            'SELECT ID, COMMAND, STATE, TIME, INFO FROM information_schema.PROCESSLIST WHERE ID = %s',
+                            (conn_id,),
+                        )
+                        row = probe_cur.fetchone()
+                        # If the server no longer lists this connection id, force-close
+                        # the client connection so the blocked read is interrupted.
+                        if row is None:
+                            print(f"[watcher] server no longer lists connection {conn_id}; closing client connection")
+                            try:
+                                connection.close()
+                            except Exception:
+                                pass
+                            return
+
+                        # If the session exists but is not actively running a query
+                        # (e.g., STATE is Sleep), check whether the procedure's
+                        # expected output tables already exist and contain rows. If
+                        # so, assume the server-side work finished and close the
+                        # client connection to allow the client to recover.
+                        state = (row.get("STATE") or "").lower()
+                        if proc_name and (not state or state.startswith("sleep") or row.get("COMMAND") != "Query"):
+                            out_tables = PROC_OUTPUT_TABLES.get(proc_name, ())
+                            for tbl in out_tables:
+                                try:
+                                    probe_cur.execute(f"SELECT 1 FROM {tbl} LIMIT 1")
+                                    exists = probe_cur.fetchone()
+                                    if exists:
+                                        print(f"[watcher] detected output table {tbl} for {proc_name}; closing client connection")
+                                        try:
+                                            connection.close()
+                                        except Exception:
+                                            pass
+                                        return
+                                except Exception:
+                                    # Table may not exist yet; ignore and continue polling
+                                    pass
+
+                        time.sleep(check_interval)
+            finally:
+                probe_conn.close()
+        except Exception as e:
+            print('[watcher] error:', e)
+
     def spin():
         for frame in itertools.cycle("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"):
             if done.is_set():
@@ -368,9 +438,37 @@ def call_procedure(cursor, connection, procedure_name: str, args: tuple) -> list
     spinner = threading.Thread(target=spin, daemon=True)
     spinner.start()
     try:
-        cursor.execute(sql, args)
+        # Get server connection id for this client session so watcher can check it
+        try:
+            cursor.execute('SELECT CONNECTION_ID() AS connection_id')
+            conn_row = cursor.fetchone()
+            server_conn_id = conn_row.get('connection_id') if conn_row else None
+            print(f"[call_procedure] server connection id: {server_conn_id}")
+        except Exception:
+            server_conn_id = None
+
+        watcher_thread = None
+        if server_conn_id is not None:
+            watcher_thread = threading.Thread(target=watcher, args=(server_conn_id, procedure_name), daemon=True)
+            watcher_thread.start()
+
+        print(f"[call_procedure] start execute: {procedure_name} at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        try:
+            cursor.execute(sql, args)
+        except pymysql.err.OperationalError as e:
+            print(f"[call_procedure] OperationalError during execute: {e}")
+            raise
+
+        # Stop the spinner as soon as the CALL returns so the UI
+        # doesn't appear to be stuck while we process results.
+        print(f"[call_procedure] execute returned for: {procedure_name} at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        done.set()
+        spinner.join()
+
         result_rows = print_result_sets(cursor)
         connection.commit()
+        if watcher_thread is not None:
+            watcher_thread.join(timeout=0)
     finally:
         done.set()
         spinner.join()
@@ -411,15 +509,30 @@ def update_product_offering_category_po_id(cursor, connection, database_name: st
 
 def print_result_sets(cursor) -> list[dict]:
     result_rows = []
+    max_preview_rows = 10
 
     while True:
         if cursor.description:
-            rows = cursor.fetchall()
-            if rows:
-                print(f"Result rows: {len(rows)}")
-                for row in rows:
+            row_count = 0
+            preview_rows = []
+
+            while True:
+                rows = cursor.fetchmany(1000)
+                if not rows:
+                    break
+
+                row_count += len(rows)
+                remaining_preview_slots = max_preview_rows - len(preview_rows)
+                if remaining_preview_slots > 0:
+                    preview_rows.extend(rows[:remaining_preview_slots])
+
+            if row_count:
+                print(f"Result rows: {row_count}")
+                for row in preview_rows:
                     print(row)
-                result_rows.extend(rows)
+                if row_count > max_preview_rows:
+                    print(f"... skipped printing {row_count - max_preview_rows} more rows")
+                result_rows.extend(preview_rows)
 
         if not cursor.nextset():
             break
@@ -471,4 +584,3 @@ def format_duration(seconds: float) -> str:
 
 if __name__ == "__main__":
     main()
-

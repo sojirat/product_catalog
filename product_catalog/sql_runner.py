@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 
 def execute_sql_file(cursor, path: Path) -> None:
@@ -19,9 +20,10 @@ def split_mysql_script(script: str) -> list[str]:
         line = raw_line.rstrip()
         stripped = line.strip()
 
-        if stripped.upper().startswith("DELIMITER "):
+        delimiter_match = re.match(r"^DELIMITER\s*(.+)$", stripped, re.IGNORECASE)
+        if delimiter_match:
             flush_statement(buffer, statements)
-            delimiter = stripped.split(None, 1)[1]
+            delimiter = delimiter_match.group(1)
             continue
 
         if stripped.endswith(delimiter):

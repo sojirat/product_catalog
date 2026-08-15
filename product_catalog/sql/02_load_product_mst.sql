@@ -148,13 +148,13 @@ proc_label: BEGIN
         UPPER(TRIM(clean_name_raw(CONVERT(s.GRADE           USING utf8mb4)))) COLLATE utf8mb4_general_ci,
         UPPER(TRIM(clean_name_raw(CONVERT(s.COLOR           USING utf8mb4)))) COLLATE utf8mb4_general_ci,
         UPPER(TRIM(clean_name_raw(CONVERT(s.CAPACITY        USING utf8mb4)))) COLLATE utf8mb4_general_ci,
-        CONVERT(s.PRODUCT_TYPE    USING utf8mb4) COLLATE utf8mb4_general_ci,
-        CONVERT(s.PRODUCT_SUBTYPE USING utf8mb4) COLLATE utf8mb4_general_ci,
+        UPPER(TRIM(clean_name_raw(CONVERT(s.PRODUCT_TYPE    USING utf8mb4)))) COLLATE utf8mb4_general_ci,
+        UPPER(TRIM(clean_name_raw(CONVERT(s.PRODUCT_SUBTYPE USING utf8mb4)))) COLLATE utf8mb4_general_ci,
         CONVERT(s.CATEGORY        USING utf8mb4) COLLATE utf8mb4_general_ci,
         CONVERT(s.VALUATION_CLASS USING utf8mb4) COLLATE utf8mb4_general_ci,
         CONVERT(s.ACT_TYPE        USING utf8mb4) COLLATE utf8mb4_general_ci,
         CONVERT(s.ACTIVE_FLAG     USING utf8mb4) COLLATE utf8mb4_general_ci,
-        CONVERT(s.MAT_TYPE        USING utf8mb4) COLLATE utf8mb4_general_ci,
+        UPPER(TRIM(clean_name_raw(CONVERT(s.MAT_TYPE USING utf8mb4)))) COLLATE utf8mb4_general_ci,
         UPPER(TRIM(clean_name_raw(CONVERT(s.MODEL            USING utf8mb4)))) COLLATE utf8mb4_general_ci,
         UPPER(TRIM(clean_name_raw(CONVERT(s.UNIT_NAME        USING utf8mb4)))) COLLATE utf8mb4_general_ci,
         CONVERT(s.CREATED_BY      USING utf8mb4) COLLATE utf8mb4_general_ci,
@@ -190,8 +190,8 @@ proc_label: BEGIN
             IFNULL(UPPER(TRIM(clean_name_raw(s.GRADE))),           ''),
             IFNULL(UPPER(TRIM(clean_name_raw(s.COLOR))),           ''),
             IFNULL(UPPER(TRIM(clean_name_raw(s.CAPACITY))),        ''),
-            IFNULL(s.PRODUCT_TYPE,       ''),
-            IFNULL(s.PRODUCT_SUBTYPE,    ''),
+            IFNULL( UPPER( TRIM(clean_name_raw (s.PRODUCT_TYPE)) ), '' ),
+            IFNULL( UPPER( TRIM(clean_name_raw (s.PRODUCT_SUBTYPE)) ), '' ),
             IFNULL(s.CATEGORY,           ''),
             IFNULL(s.VALUATION_CLASS,    ''),
             IFNULL(CAST(s.EFFECTIVE_DATE AS CHAR), ''),
@@ -476,4 +476,4 @@ proc_label: BEGIN
 
 END$$
 
-DELIMITER ;
+DELIMITER;

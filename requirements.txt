@@ -1,3 +1,4 @@
 pymysql
 deep-translator
 openpyxl
+wcwidth

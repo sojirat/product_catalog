@@ -1757,12 +1757,13 @@ def text_value(value) -> str:
     )
 
 
+_ILLEGAL_CHARS_RE = re.compile(r"[\x00-\x08\x0b-\x0c\x0e-\x1f]")
+
+
 def excel_text_value(value) -> str:
-    return (
-        ""
-        if value is None
-        else str(value)
-    )
+    if value is None:
+        return ""
+    return _ILLEGAL_CHARS_RE.sub("", str(value))
 
 
 def measure(

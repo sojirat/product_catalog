@@ -1,6 +1,6 @@
 """
 DB diagnostic helper for the product_catalog project.
-Run locally to collect `SHOW PROCESSLIST`, InnoDB transaction/lock info, and row counts.
+Run locally to collect SQL Server request/lock information and row counts.
 Usage:
     python product_catalog/db_check.py [--env /path/to/.env] [--processlist-limit N]
 """
@@ -12,15 +12,13 @@ from product_catalog.translation import load_database_config, connect_database
 from product_catalog.export_template_mapping import BASE_DIR
 
 DEFAULT_QUERIES = [
-    ("SHOW FULL PROCESSLIST", None),
-    ("SELECT * FROM information_schema.PROCESSLIST ORDER BY TIME DESC LIMIT %(limit)s", {'limit': 50}),
-    ("SELECT trx_id, trx_mysql_thread_id, trx_started, trx_state, trx_query FROM information_schema.INNODB_TRX", None),
-    ("SELECT * FROM information_schema.INNODB_LOCKS", None),
-    ("SELECT * FROM information_schema.INNODB_LOCK_WAITS", None),
+    ("SELECT session_id, status, login_name, host_name, program_name FROM sys.dm_exec_sessions", None),
+    ("SELECT TOP 50 * FROM sys.dm_exec_requests ORDER BY start_time DESC", None),
+    ("SELECT TOP 50 * FROM sys.dm_tran_locks", None),
     ("SELECT COUNT(*) AS c FROM tbl_product_offering", None),
     ("SELECT COUNT(*) AS c FROM tbl_product_offering_variant", None),
     ("SELECT COUNT(*) AS c FROM tbl_product_offering_char_value", None),
-    ("SELECT * FROM ingest_batch ORDER BY batch_id DESC LIMIT 5", None),
+    ("SELECT TOP 5 * FROM dbo.ingest_batch ORDER BY batch_id DESC", None),
 ]
 
 
@@ -36,7 +34,7 @@ def run_query(cursor, sql, params=None):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--env', type=Path, default=BASE_DIR / '.env', help='Path to .env file')
-    parser.add_argument('--processlist-limit', type=int, default=50, help='Limit for information_schema.PROCESSLIST')
+    parser.add_argument('--processlist-limit', type=int, default=50, help='Limit for SQL Server request output')
     args = parser.parse_args()
 
     config = load_database_config(args.env)
@@ -45,40 +43,40 @@ def main():
     conn = connect_database(config)
     try:
         with conn.cursor() as cursor:
-            print('\n--- SHOW FULL PROCESSLIST ---')
-            cursor.execute('SHOW FULL PROCESSLIST')
+            print('\n--- SESSIONS ---')
+            cursor.execute('SELECT session_id, status, login_name, host_name, program_name FROM sys.dm_exec_sessions')
             for row in cursor.fetchall():
                 print(row)
 
-            print('\n--- TOP PROCESSLIST (time desc) ---')
-            cursor.execute('SELECT * FROM information_schema.PROCESSLIST ORDER BY TIME DESC LIMIT %s', (args.processlist_limit,))
+            print('\n--- TOP REQUESTS (start time desc) ---')
+            cursor.execute('SELECT TOP (?) * FROM sys.dm_exec_requests ORDER BY start_time DESC', (args.processlist_limit,))
             for row in cursor.fetchall():
                 print(row)
 
-            print('\n--- INNODB TRX (first 20) ---')
+            print('\n--- ACTIVE TRANSACTIONS (first 20) ---')
             try:
-                cursor.execute('SELECT trx_id, trx_mysql_thread_id, trx_started, trx_state, trx_query FROM information_schema.INNODB_TRX LIMIT 20')
+                cursor.execute('SELECT TOP 20 * FROM sys.dm_tran_active_transactions')
                 trx = cursor.fetchall()
                 for row in trx:
                     print(row)
             except Exception as e:
-                print('INNODB_TRX not available or error:', e)
+                print('Transaction DMV not available or error:', e)
 
-            print('\n--- INNODB LOCKS (first 50) ---')
+            print('\n--- LOCKS (first 50) ---')
             try:
-                cursor.execute('SELECT * FROM information_schema.INNODB_LOCKS LIMIT 50')
+                cursor.execute('SELECT TOP 50 * FROM sys.dm_tran_locks')
                 for row in cursor.fetchall():
                     print(row)
             except Exception as e:
-                print('INNODB_LOCKS not available or error:', e)
+                print('Lock DMV not available or error:', e)
 
-            print('\n--- INNODB LOCK WAITS (first 50) ---')
+            print('\n--- BLOCKED REQUESTS (first 50) ---')
             try:
-                cursor.execute('SELECT * FROM information_schema.INNODB_LOCK_WAITS LIMIT 50')
+                cursor.execute('SELECT TOP 50 * FROM sys.dm_exec_requests WHERE blocking_session_id <> 0')
                 for row in cursor.fetchall():
                     print(row)
             except Exception as e:
-                print('INNODB_LOCK_WAITS not available or error:', e)
+                print('Blocked-request DMV not available or error:', e)
 
             print('\n--- COUNTS ---')
             for sql, params in [
@@ -95,7 +93,7 @@ def main():
 
             print('\n--- LATEST ingest_batch ---')
             try:
-                cursor.execute('SELECT * FROM ingest_batch ORDER BY batch_id DESC LIMIT 5')
+                cursor.execute('SELECT TOP 5 * FROM dbo.ingest_batch ORDER BY batch_id DESC')
                 for row in cursor.fetchall():
                     print(row)
             except Exception as e:

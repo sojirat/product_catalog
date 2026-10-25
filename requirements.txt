@@ -1,4 +1,4 @@
-pymysql
+pyodbc
 deep-translator
 openpyxl
 wcwidth

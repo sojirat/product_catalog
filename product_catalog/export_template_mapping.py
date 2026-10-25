@@ -56,6 +56,7 @@ def main() -> None:
             mapping_rows = fetch_mapping_rows(
                 cursor,
                 mapping_table,
+                config.schema,
             )
 
             mapping_rows = filter_mapping_rows_by_excel_file(
@@ -75,6 +76,7 @@ def main() -> None:
                 load_datasets,
                 cursor,
                 mapping_rows,
+                config.schema,
             )
 
             rows_by_raw_file = group_mapping_rows_by_raw_file(
@@ -241,8 +243,9 @@ def get_excel_file_filter() -> set[str]:
 def fetch_mapping_rows(
     cursor,
     mapping_table: str,
+    schema: str,
 ) -> list[dict]:
-    cursor.execute(f"SELECT * FROM {mapping_table}")
+    cursor.execute(f"SELECT * FROM {qualified_identifier(schema, mapping_table)}")
 
     mapping_rows = []
 
@@ -380,15 +383,17 @@ def filter_mapping_rows_by_excel_file(
 def database_object_exists(
     cursor,
     database_name: str,
+    schema: str,
 ) -> bool:
     cursor.execute(
         """
         SELECT COUNT(*) AS cnt
         FROM INFORMATION_SCHEMA.TABLES
-        WHERE TABLE_SCHEMA = DATABASE()
+        WHERE TABLE_CATALOG = DB_NAME()
+          AND TABLE_SCHEMA = %s
           AND TABLE_NAME = %s
         """,
-        (database_name,),
+        (schema, database_name),
     )
 
     result = cursor.fetchone()
@@ -399,6 +404,7 @@ def database_object_exists(
 def load_datasets(
     cursor,
     mapping_rows: list[dict],
+    schema: str,
 ) -> dict[str, tuple[list[str], list[dict]]]:
     """Load raw datasets for all views referenced in mapping_rows (no merging).
 
@@ -426,12 +432,12 @@ def load_datasets(
         if not database_name:
             continue
 
-        if not database_object_exists(cursor, database_name):
+        if not database_object_exists(cursor, database_name, schema):
             source = union_source_for.get(database_name)
-            if source and database_object_exists(cursor, source):
+            if source and database_object_exists(cursor, source, schema):
                 cursor.execute(
-                    f"CREATE VIEW {database_name} AS "
-                    f"SELECT * FROM {source} WHERE 1=0"
+                    f"CREATE VIEW {qualified_identifier(schema, database_name)} AS "
+                    f"SELECT * FROM {qualified_identifier(schema, source)} WHERE 1=0"
                 )
                 temp_views.append(database_name)
                 print(f"Created temporary empty view: {database_name}")
@@ -441,7 +447,7 @@ def load_datasets(
 
         started_at = time.perf_counter()
 
-        cursor.execute(f"SELECT * FROM {database_name}")
+        cursor.execute(f"SELECT * FROM {qualified_identifier(schema, database_name)}")
 
         columns = [column[0] for column in cursor.description]
         rows = cursor.fetchall()
@@ -455,7 +461,7 @@ def load_datasets(
         )
 
     for view_name in temp_views:
-        cursor.execute(f"DROP VIEW IF EXISTS {view_name}")
+        cursor.execute(f"DROP VIEW IF EXISTS {qualified_identifier(schema, view_name)}")
         print(f"Dropped temporary view: {view_name}")
 
     return datasets
@@ -1747,6 +1753,13 @@ def validate_identifier(
         raise ValueError(
             f"Unsafe database object name: {identifier}"
         )
+
+
+def qualified_identifier(schema: str, identifier: str) -> str:
+    """Return a validated SQL Server two-part identifier."""
+    validate_identifier(schema)
+    validate_identifier(identifier)
+    return f"[{schema}].[{identifier}]"
 
 
 def text_value(value) -> str:

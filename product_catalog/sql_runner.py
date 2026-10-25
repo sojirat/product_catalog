@@ -5,37 +5,16 @@ import re
 def execute_sql_file(cursor, path: Path) -> None:
     print(f"\n=== INSTALL {path.name} ===")
 
-    for statement in split_mysql_script(path.read_text()):
+    for statement in split_sql_server_script(path.read_text()):
         cursor.execute(statement)
 
     print("Installed")
 
 
-def split_mysql_script(script: str) -> list[str]:
-    delimiter = ";"
-    buffer: list[str] = []
-    statements: list[str] = []
-
-    for raw_line in script.splitlines():
-        line = raw_line.rstrip()
-        stripped = line.strip()
-
-        delimiter_match = re.match(r"^DELIMITER\s*(.+)$", stripped, re.IGNORECASE)
-        if delimiter_match:
-            flush_statement(buffer, statements)
-            delimiter = delimiter_match.group(1)
-            continue
-
-        if stripped.endswith(delimiter):
-            statement_line = line[: -len(delimiter)]
-            buffer.append(statement_line)
-            flush_statement(buffer, statements)
-            continue
-
-        buffer.append(line)
-
-    flush_statement(buffer, statements)
-    return statements
+def split_sql_server_script(script: str) -> list[str]:
+    """Split SQL Server batches.  GO is a client-side batch separator."""
+    return [batch.strip() for batch in re.split(r"^\s*GO\s*$", script, flags=re.MULTILINE | re.IGNORECASE)
+            if batch.strip() and not is_comment_only(batch)]
 
 
 def flush_statement(buffer: list[str], statements: list[str]) -> None:

@@ -19,6 +19,10 @@ class DatabaseConfig:
     user: str
     password: str
     database: str
+    schema: str
+    driver: str
+    encrypt: bool
+    trust_server_certificate: bool
 
 
 @dataclass(frozen=True)
@@ -119,10 +123,14 @@ def load_database_config(env_path: Path) -> DatabaseConfig:
 
     return DatabaseConfig(
         host=os.getenv("DB_HOST", "localhost"),
-        port=int(os.getenv("DB_PORT", "3306")),
-        user=os.getenv("DB_USER", "root"),
+        port=int(os.getenv("DB_PORT", "1433")),
+        user=os.getenv("DB_USER", "sa"),
         password=os.getenv("DB_PASSWORD", ""),
         database=os.getenv("DB_NAME", "product_catalog"),
+        schema=os.getenv("DB_SCHEMA", "dbo"),
+        driver=os.getenv("DB_DRIVER", "ODBC Driver 18 for SQL Server"),
+        encrypt=os.getenv("DB_ENCRYPT", "yes").lower() in {"1", "true", "yes"},
+        trust_server_certificate=os.getenv("DB_TRUST_SERVER_CERTIFICATE", "no").lower() in {"1", "true", "yes"},
     )
 
 
@@ -165,33 +173,83 @@ def parse_optional_int(value: str | None) -> int | None:
     return int(value)
 
 
+class SqlServerCursor:
+    """DB-API adapter: SQL Server parameter markers and dict-shaped result rows."""
+
+    def __init__(self, cursor) -> None:
+        self._cursor = cursor
+
+    @property
+    def description(self):
+        return self._cursor.description
+
+    @property
+    def rowcount(self):
+        return self._cursor.rowcount
+
+    def execute(self, sql: str, params=None):
+        values = () if params is None else params
+        if not isinstance(values, (tuple, list)):
+            values = (values,)
+        return self._cursor.execute(sql.replace("%s", "?"), *values)
+
+    def executemany(self, sql: str, params):
+        return self._cursor.executemany(sql.replace("%s", "?"), params)
+
+    def _as_dict(self, row):
+        if row is None:
+            return None
+        return {column[0]: row[index] for index, column in enumerate(self._cursor.description)}
+
+    def fetchone(self):
+        return self._as_dict(self._cursor.fetchone())
+
+    def fetchall(self):
+        return [self._as_dict(row) for row in self._cursor.fetchall()]
+
+    def nextset(self):
+        return self._cursor.nextset()
+
+    def close(self):
+        self._cursor.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        self.close()
+
+
+class SqlServerConnection:
+    def __init__(self, connection) -> None:
+        self._connection = connection
+
+    def cursor(self):
+        return SqlServerCursor(self._connection.cursor())
+
+    def commit(self):
+        self._connection.commit()
+
+    def rollback(self):
+        self._connection.rollback()
+
+    def close(self):
+        self._connection.close()
+
+
 def connect_database(db_config: DatabaseConfig):
-    import pymysql
+    import pyodbc
 
-    connection = pymysql.connect(
-        host=db_config.host,
-        port=db_config.port,
-        user=db_config.user,
-        password=db_config.password,
-        database=db_config.database,
-        charset="utf8mb4",
-        use_unicode=True,
-        cursorclass=pymysql.cursors.DictCursor,
-        autocommit=False,
-        connect_timeout=10,
-        # Long-running stored procedures can take a long time to complete.
-        # Increase read/write timeouts to avoid premature client-side disconnects.
-        read_timeout=7200,
-        write_timeout=7200,
+    connection_string = (
+        f"DRIVER={{{db_config.driver}}};"
+        f"SERVER={db_config.host},{db_config.port};"
+        f"DATABASE={db_config.database};"
+        f"UID={db_config.user};PWD={db_config.password};"
+        f"Encrypt={'yes' if db_config.encrypt else 'no'};"
+        f"TrustServerCertificate={'yes' if db_config.trust_server_certificate else 'no'};"
+        "Connection Timeout=10;"
     )
-
-    with connection.cursor() as cursor:
-        cursor.execute("SET NAMES utf8mb4 COLLATE utf8mb4_general_ci")
-        cursor.execute("SET CHARACTER SET utf8mb4")
-        cursor.execute("SET character_set_connection=utf8mb4")
-        cursor.execute("SET collation_connection = 'utf8mb4_general_ci'")
-
-    return connection
+    return SqlServerConnection(pyodbc.connect(connection_string, autocommit=False))
 
 
 def slugify(text: str) -> str:
@@ -414,10 +472,11 @@ def ensure_id_column_index(cursor, connection, job: TranslationJob) -> None:
     cursor.execute(
         """
         SELECT COUNT(*) AS cnt
-        FROM INFORMATION_SCHEMA.STATISTICS
-        WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = %s
-          AND INDEX_NAME = %s
+        FROM sys.indexes i
+        JOIN sys.tables t ON t.object_id = i.object_id
+        JOIN sys.schemas s ON s.schema_id = t.schema_id
+        WHERE t.name = %s
+          AND i.name = %s
         """,
         (job.table_name, index_name),
     )
@@ -426,7 +485,7 @@ def ensure_id_column_index(cursor, connection, job: TranslationJob) -> None:
 
     print(f"Adding index {index_name} on {job.table_name}.{job.id_column} ...")
     cursor.execute(
-        f"ALTER TABLE {job.table_name} ADD INDEX {index_name} ({job.id_column}(255))"
+        f"CREATE INDEX {index_name} ON dbo.{job.table_name} ({job.id_column})"
     )
     connection.commit()
     print("Index added")
@@ -436,7 +495,7 @@ def ensure_original_column(cursor, connection, database_name: str, job: Translat
     check_column_sql = """
         SELECT COUNT(*) AS cnt
         FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA = %s
+        WHERE TABLE_CATALOG = %s
           AND TABLE_NAME = %s
           AND COLUMN_NAME = %s
     """
@@ -452,7 +511,7 @@ def ensure_original_column(cursor, connection, database_name: str, job: Translat
 
     print(f"Adding column {job.original_column} ...")
     cursor.execute(
-        f"ALTER TABLE {job.table_name} ADD COLUMN {job.original_column} TEXT NULL"
+        f"ALTER TABLE dbo.{job.table_name} ADD {job.original_column} NVARCHAR(MAX) NULL"
     )
     connection.commit()
     print("Column added")
@@ -463,7 +522,7 @@ def table_exists(cursor, database_name: str, table_name: str) -> bool:
         """
         SELECT COUNT(*) AS cnt
         FROM INFORMATION_SCHEMA.TABLES
-        WHERE TABLE_SCHEMA = %s
+        WHERE TABLE_CATALOG = %s
           AND TABLE_NAME = %s
         """,
         (database_name, table_name),
@@ -516,10 +575,10 @@ def fetch_rows(cursor, job: TranslationJob, translator: IdTranslator) -> list[di
             FROM {job.table_name}
             WHERE {job.original_column} IS NULL
               AND (
-                    {job.id_column} REGEXP '[ก-๙]'
+                    {job.id_column} LIKE N'%[ก-๙]%'
                  OR (
-                        {job.id_column} REGEXP '_(?:{suffix_pattern})[0-9]+'
-                    AND {job.id_column} NOT REGEXP '-(?:{suffix_pattern})[0-9]+'
+                        {job.id_column} LIKE '%[_]%'
+                    AND {job.id_column} NOT LIKE '%-%'
                     )
               )
         """
@@ -529,8 +588,8 @@ def fetch_rows(cursor, job: TranslationJob, translator: IdTranslator) -> list[di
             FROM {job.table_name}
             WHERE {job.original_column} IS NULL
               AND (
-                    {job.id_column} REGEXP '[ก-๙]'
-                 OR {job.id_column} REGEXP '_of_mg[0-9]+'
+                    {job.id_column} LIKE N'%[ก-๙]%'
+                 OR {job.id_column} LIKE '%[_]of_mg[0-9]%'
               )
         """
 

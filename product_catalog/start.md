@@ -15,7 +15,7 @@ python3.11 -m venv .venv
 
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install pymysql deep-translator openpyxl
+python -m pip install pyodbc deep-translator openpyxl
 
 # ##########################
 cd /Users/milk/_AIS/product_catalog2

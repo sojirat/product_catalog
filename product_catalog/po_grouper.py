@@ -892,7 +892,7 @@ PO_GROUP_COLUMNS = [
 def ensure_po_group_table(cursor, connection) -> None:
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS po_group (
-            id            INT AUTO_INCREMENT PRIMARY KEY,
+            id            INT IDENTITY(1,1) PRIMARY KEY,
             No            INT,
             PO_ID         VARCHAR(512),
             NEW_GROUP     TEXT,
@@ -923,8 +923,8 @@ def ensure_po_group_table(cursor, connection) -> None:
             mat_codes     TEXT,
             valid_from    VARCHAR(50),
             confidence    VARCHAR(20),
-            created_at    DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3)
-        ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+            created_at    DATETIME2(3) DEFAULT SYSUTCDATETIME()
+        )
     """)
     connection.commit()
     print("po_group table ready")
@@ -943,7 +943,7 @@ def insert_po_summary(cursor, connection, summary: pd.DataFrame) -> int:
 
     cols_present = [c for c in PO_GROUP_COLUMNS if c in df.columns]
     placeholders = ", ".join(["%s"] * len(cols_present))
-    col_names    = ", ".join([f"`{c}`" for c in cols_present])
+    col_names    = ", ".join([f"[{c}]" for c in cols_present])
     sql = f"INSERT INTO po_group ({col_names}) VALUES ({placeholders})"
 
     rows = 0

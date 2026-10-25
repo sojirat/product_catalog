@@ -3,7 +3,6 @@ import itertools
 import re
 import sys
 import threading
-import pymysql
 import time
 from pathlib import Path
 
@@ -14,7 +13,6 @@ for path in (str(PROJECT_ROOT), str(PACKAGE_DIR)):
         sys.path.insert(0, path)
 
 from product_catalog.export_template_mapping import BASE_DIR
-from sql_runner import split_mysql_script
 from translation import (
     IdTranslator,
     TranslationJob,
@@ -80,7 +78,7 @@ def main() -> None:
             if args.command == "run-flow":
                 skip_to = args.skip_to or 0
                 if skip_to > 0:
-                    cursor.execute("SELECT batch_id FROM ingest_batch ORDER BY batch_id DESC LIMIT 1")
+                    cursor.execute("SELECT TOP 1 batch_id FROM dbo.ingest_batch ORDER BY batch_id DESC")
                     row = cursor.fetchone()
                     if row is None:
                         raise RuntimeError("--skip-to requires an existing ingest_batch row but the table is empty.")
@@ -133,52 +131,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def configure_run_session(cursor) -> None:
-    cursor.execute("SET SESSION lock_wait_timeout = 5")
-    cursor.execute("SET SESSION innodb_lock_wait_timeout = 5")
-    cursor.execute("SET NAMES utf8mb4 COLLATE utf8mb4_general_ci")
-    cursor.execute("SET CHARACTER SET utf8mb4")
-    cursor.execute("SET character_set_connection=utf8mb4")
-    cursor.execute("SET collation_connection = 'utf8mb4_general_ci'")
+    cursor.execute("SET LOCK_TIMEOUT 5000; SET XACT_ABORT ON;")
 
 
 def kill_stale_database_sessions(cursor, database_name: str) -> None:
-    cursor.execute("SELECT CONNECTION_ID() AS connection_id")
-    current_connection_id = cursor.fetchone()["connection_id"]
-    cursor.execute("SHOW FULL PROCESSLIST")
-    sessions = cursor.fetchall()
-    killed_sessions = []
-
-    for session in sessions:
-        session_id = session.get("Id")
-        if session_id == current_connection_id:
-            continue
-
-        if session.get("db") != database_name:
-            continue
-
-        if session.get("Command") == "Daemon":
-            continue
-
-        cursor.execute(f"KILL {int(session_id)}")
-        killed_sessions.append(session)
-
-    if not killed_sessions:
-        return
-
-    print("\n=== KILL STALE DATABASE SESSIONS ===")
-    for session in killed_sessions:
-        info = (session.get("Info") or "").strip().replace("\n", " ")
-        if len(info) > 160:
-            info = info[:157] + "..."
-
-        print(
-            "Killed "
-            f"id={session.get('Id')} "
-            f"command={session.get('Command')} "
-            f"time={session.get('Time')}s "
-            f"state={session.get('State') or '-'} "
-            f"info={info or '-'}"
-        )
+    # Killing other sessions requires server-level privileges and is unsafe in a
+    # shared SQL Server database.  SQL Server handles stale client sessions.
+    return
 
 
 def reset_and_load_product_mst(cursor, connection, database_name: str, run_config) -> int | None:
@@ -274,41 +233,9 @@ def validate_source_table(cursor, database_name: str, table_name: str) -> None:
 
 
 def install_load_product_mst_only(cursor, connection, sql_dir: Path) -> None:
-    if not sql_dir.exists():
-        raise FileNotFoundError(
-            f"SQL_DIR does not exist: {sql_dir}. "
-            "Set SQL_DIR in product_catalog/.env to the folder containing 02_load_product_mst.sql."
-        )
-
-    source_path = sql_dir / "02_load_product_mst.sql"
-    if not source_path.exists():
-        raise FileNotFoundError(
-            f"SQL file not found: {source_path}. "
-            "Set SQL_DIR in product_catalog/.env to the folder containing 02_load_product_mst.sql."
-        )
-
-    print("\n=== INSTALL load_product_mst_only ===")
-    script = source_path.read_text()
-    script = script.replace(
-        "DROP PROCEDURE IF EXISTS load_product_mst",
-        "DROP PROCEDURE IF EXISTS load_product_mst_only",
-    )
-    script = script.replace(
-        "CREATE PROCEDURE load_product_mst(",
-        "CREATE PROCEDURE load_product_mst_only(",
-    )
-    script = re.sub(
-        r"\n\s*-- ={64}\n\s*-- STEP 8: เรียก generate_all ถ้ามี downstream\n\s*-- ={64}\n\s*IF v_downstream > 0 THEN\n\s*CALL generate_all\(v_batch_id, v_actor\);\n\s*END IF;\n",
-        "\n",
-        script,
-        count=1,
-    )
-
-    for statement in split_mysql_script(script):
-        cursor.execute(statement)
-
-    connection.commit()
-    print("Installed load_product_mst_only without generate_all")
+    # SQL Server procedures are deployed as T-SQL batches. Do not try to
+    # transform the legacy MySQL source at runtime.
+    print("Using deployed SQL Server procedure dbo.load_product_mst")
 
 
 def run_generate_flow(
@@ -359,120 +286,17 @@ def run_generate_flow(
 
 
 def call_procedure(cursor, connection, procedure_name: str, args: tuple) -> list[dict]:
-    placeholders = ", ".join(["%s"] * len(args))
-    sql = f"CALL {procedure_name}({placeholders})" if args else f"CALL {procedure_name}()"
+    placeholders = ", ".join(["?"] * len(args))
+    sql = f"EXEC dbo.{procedure_name} {placeholders}" if args else f"EXEC dbo.{procedure_name}"
 
     print(f"\n=== CALL {procedure_name} ===", flush=True)
     started_at = time.perf_counter()
-
-    done = threading.Event()
-
-    # Watcher thread: if the server no longer shows this connection id
-    # (procedure finished on server side) but the client is still blocked
-    # reading, we can close the client connection to force an error and
-    # recover. This uses a separate DB connection to poll processlist.
-    def watcher(conn_id: int, proc_name: str | None = None, check_interval: float = 5.0, max_checks: int = 60):
-        try:
-            from translation import load_database_config, connect_database
-            config = load_database_config(BASE_DIR / ".env")
-            probe_conn = connect_database(config)
-            try:
-                with probe_conn.cursor() as probe_cur:
-                    for _ in range(max_checks):
-                        if done.is_set():
-                            return
-                        probe_cur.execute(
-                            'SELECT ID, COMMAND, STATE, TIME, INFO FROM information_schema.PROCESSLIST WHERE ID = %s',
-                            (conn_id,),
-                        )
-                        row = probe_cur.fetchone()
-                        # If the server no longer lists this connection id, force-close
-                        # the client connection so the blocked read is interrupted.
-                        if row is None:
-                            print(f"[watcher] server no longer lists connection {conn_id}; closing client connection")
-                            try:
-                                connection.close()
-                            except Exception:
-                                pass
-                            return
-
-                        # If the session exists but is not actively running a query
-                        # (e.g., STATE is Sleep), check whether the procedure's
-                        # expected output tables already exist and contain rows. If
-                        # so, assume the server-side work finished and close the
-                        # client connection to allow the client to recover.
-                        state = (row.get("STATE") or "").lower()
-                        if proc_name and (not state or state.startswith("sleep") or row.get("COMMAND") != "Query"):
-                            out_tables = PROC_OUTPUT_TABLES.get(proc_name, ())
-                            for tbl in out_tables:
-                                try:
-                                    probe_cur.execute(f"SELECT 1 FROM {tbl} LIMIT 1")
-                                    exists = probe_cur.fetchone()
-                                    if exists:
-                                        print(f"[watcher] detected output table {tbl} for {proc_name}; closing client connection")
-                                        try:
-                                            connection.close()
-                                        except Exception:
-                                            pass
-                                        return
-                                except Exception:
-                                    # Table may not exist yet; ignore and continue polling
-                                    pass
-
-                        time.sleep(check_interval)
-            finally:
-                probe_conn.close()
-        except Exception as e:
-            print('[watcher] error:', e)
-
-    def spin():
-        for frame in itertools.cycle("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"):
-            if done.is_set():
-                break
-            elapsed = time.perf_counter() - started_at
-            sys.stderr.write(f"\r{frame} {format_duration(elapsed)} elapsed...")
-            sys.stderr.flush()
-            time.sleep(0.1)
-        sys.stderr.write("\r" + " " * 30 + "\r")
-        sys.stderr.flush()
-
-    spinner = threading.Thread(target=spin, daemon=True)
-    spinner.start()
     try:
-        # Get server connection id for this client session so watcher can check it
-        try:
-            cursor.execute('SELECT CONNECTION_ID() AS connection_id')
-            conn_row = cursor.fetchone()
-            server_conn_id = conn_row.get('connection_id') if conn_row else None
-            print(f"[call_procedure] server connection id: {server_conn_id}")
-        except Exception:
-            server_conn_id = None
-
-        watcher_thread = None
-        if server_conn_id is not None:
-            watcher_thread = threading.Thread(target=watcher, args=(server_conn_id, procedure_name), daemon=True)
-            watcher_thread.start()
-
-        print(f"[call_procedure] start execute: {procedure_name} at {time.strftime('%Y-%m-%d %H:%M:%S')}")
-        try:
-            cursor.execute(sql, args)
-        except pymysql.err.OperationalError as e:
-            print(f"[call_procedure] OperationalError during execute: {e}")
-            raise
-
-        # Stop the spinner as soon as the CALL returns so the UI
-        # doesn't appear to be stuck while we process results.
-        print(f"[call_procedure] execute returned for: {procedure_name} at {time.strftime('%Y-%m-%d %H:%M:%S')}")
-        done.set()
-        spinner.join()
-
+        cursor.execute(sql, args)
         result_rows = print_result_sets(cursor)
         connection.commit()
-        if watcher_thread is not None:
-            watcher_thread.join(timeout=0)
     finally:
-        done.set()
-        spinner.join()
+        pass
 
     print(f"Procedure completed in {format_duration(time.perf_counter() - started_at)}")
     return result_rows
@@ -497,11 +321,12 @@ def update_product_offering_category_po_id(cursor, connection, database_name: st
 
     cursor.execute(
         """
-        UPDATE tbl_product_offering_category tpc
-        JOIN tbl_product_offering tpo
-            ON tpc.PO_ID = tpo.PO_ID_ORIGINAL
+        UPDATE tpc
         SET tpc.PO_ID = tpo.PO_ID
-        WHERE tpo.PO_ID_ORIGINAL REGEXP '[ก-๙]'
+        FROM dbo.tbl_product_offering_category AS tpc
+        JOIN dbo.tbl_product_offering AS tpo
+            ON tpc.PO_ID = tpo.PO_ID_ORIGINAL
+        WHERE tpo.PO_ID_ORIGINAL LIKE N'%[ก-๙]%'
         """
     )
     connection.commit()

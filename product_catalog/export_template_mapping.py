@@ -25,6 +25,9 @@ from openpyxl.utils import get_column_letter
 BASE_DIR = Path(__file__).resolve().parent
 INVALID_SHEET_CHARS = re.compile(r"[\[\]:*?/\\]")
 SAFE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
+# Excel worksheets cannot contain more than 1,048,576 rows.  One row is
+# reserved for the column header in a non-template worksheet.
+MAX_XLSX_ROWS = 1_048_576
 
 
 def main() -> None:
@@ -699,6 +702,14 @@ def export_workbook(
             )
             continue
 
+        if dataset_exceeds_xlsx_row_limit(datasets[effective_name]):
+            print(
+                f"Skip XLSX sheet for {database_name}: "
+                f"{dataset_row_count(datasets[effective_name]):,} data rows exceed "
+                f"the Excel limit of {MAX_XLSX_ROWS - 1:,}. CSV export continues."
+            )
+            continue
+
         sheet_name = unique_sheet_name(
             clean_sheet_name(
                 text_value(
@@ -1231,7 +1242,7 @@ def export_combined_workbooks(
             if workbook.active:
                 workbook.remove(workbook.active)
 
-        used_sheet_names = set()
+        used_sheet_names = set(workbook.sheetnames)
 
         print(f"\n=== EXPORT COMBINED {excel_file} ===")
 
@@ -1250,6 +1261,19 @@ def export_combined_workbooks(
                     row["EXCEL SHEET NAME"]
                 )
             )
+
+            if dataset_exceeds_xlsx_row_limit(datasets[effective_name]):
+                csv_sheet_name = unique_sheet_name(
+                    csv_placeholder_sheet_name(sheet_name),
+                    used_sheet_names,
+                )
+                workbook.create_sheet(title=csv_sheet_name)
+                print(
+                    f"Skip combined XLSX sheet {sheet_name}: "
+                    f"{dataset_row_count(datasets[effective_name]):,} data rows exceed "
+                    f"the Excel limit. Created blank sheet {csv_sheet_name!r}; use CSV."
+                )
+                continue
 
             worksheet = get_or_create_worksheet(
                 workbook,
@@ -1326,6 +1350,21 @@ def get_or_create_worksheet(
     return workbook.create_sheet(
         title=unique_name
     )
+
+
+def dataset_row_count(dataset: tuple[list[str], list[dict]]) -> int:
+    return len(dataset[1])
+
+
+def dataset_exceeds_xlsx_row_limit(dataset: tuple[list[str], list[dict]]) -> bool:
+    """Return whether a plain XLSX sheet would exceed Excel's row limit."""
+    return dataset_row_count(dataset) + 1 > MAX_XLSX_ROWS
+
+
+def csv_placeholder_sheet_name(sheet_name: str) -> str:
+    """Keep the ` use csv` suffix even when the source name is 31 characters."""
+    suffix = " use csv"
+    return clean_sheet_name(sheet_name)[: 31 - len(suffix)] + suffix
 
 
 #

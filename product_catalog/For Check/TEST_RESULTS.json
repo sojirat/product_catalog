@@ -1,0 +1,137 @@
+{
+  "version": "1.1.0",
+  "tested_date_bangkok": "2026-10-30",
+  "unit_tests": {
+    "passed": 31,
+    "failed": 0,
+    "command": "python -m unittest discover -s \"product_catalog/For Check\" -p \"test_*.py\""
+  },
+  "rule_migration_comparison": {
+    "randomized_fixtures": 300,
+    "mismatches": 0,
+    "compared_fields": [
+      "rule",
+      "severity",
+      "code",
+      "source_row",
+      "occurrences",
+      "coverage"
+    ],
+    "reference_program": "C:/AIS/Python for check/validate_po_pop.py"
+  },
+  "database_mode_report_test": {
+    "source": "simulated SQL Server cursor",
+    "status": "passed",
+    "project_env_default_verified": true,
+    "local_database_module_disabled": true,
+    "xlsx_reports_reopened_and_verified": true
+  },
+  "live_database_connection": {
+    "status": "not_connected",
+    "exception": "InterfaceError",
+    "reason": "Configured ODBC Driver 18 for SQL Server is not installed",
+    "real_database_validation": "not_run"
+  },
+  "original_program_baseline": {
+    "unit_tests": {
+      "passed": 26,
+      "failed": 0
+    },
+    "real_data_test": {
+      "cv_records": 3140271,
+      "all_source_counts": {
+        "po": 2122,
+        "m": 9898,
+        "o": 9898,
+        "v": 19825,
+        "l": 27525,
+        "c": 47891,
+        "t": 19110,
+        "cv": 3140271
+      },
+      "error_cases": 109326,
+      "rule_results": [
+        {
+          "rule": 1,
+          "status": "FAIL",
+          "error_cases": 2046,
+          "review_cases": 0,
+          "warning_cases": 0,
+          "complete": true
+        },
+        {
+          "rule": 2,
+          "status": "FAIL",
+          "error_cases": 19811,
+          "review_cases": 0,
+          "warning_cases": 0,
+          "complete": true
+        },
+        {
+          "rule": 3,
+          "status": "FAIL",
+          "error_cases": 19096,
+          "review_cases": 0,
+          "warning_cases": 0,
+          "complete": true
+        },
+        {
+          "rule": 4,
+          "status": "PASS",
+          "error_cases": 0,
+          "review_cases": 0,
+          "warning_cases": 0,
+          "complete": true
+        },
+        {
+          "rule": 5,
+          "status": "FAIL",
+          "error_cases": 2046,
+          "review_cases": 0,
+          "warning_cases": 0,
+          "complete": true
+        },
+        {
+          "rule": 6,
+          "status": "INCOMPLETE",
+          "error_cases": 0,
+          "review_cases": 2046,
+          "warning_cases": 0,
+          "complete": false
+        },
+        {
+          "rule": 7,
+          "status": "FAIL",
+          "error_cases": 59,
+          "review_cases": 0,
+          "warning_cases": 2046,
+          "complete": true
+        },
+        {
+          "rule": 8,
+          "status": "FAIL",
+          "error_cases": 27790,
+          "review_cases": 0,
+          "warning_cases": 0,
+          "complete": true
+        },
+        {
+          "rule": 9,
+          "status": "FAIL",
+          "error_cases": 38478,
+          "review_cases": 19414,
+          "warning_cases": 0,
+          "complete": false
+        }
+      ],
+      "report_verification": "All written cells reopened and matched; no sampling",
+      "error_identity_comparison": {
+        "previous_checker": 109326,
+        "standalone_checker": 109326,
+        "previous_only": 0,
+        "standalone_only": 0
+      }
+    },
+    "note": "Exit code 2 is expected because unresolved business policies remain REVIEW; it is not an execution crash."
+  }
+}

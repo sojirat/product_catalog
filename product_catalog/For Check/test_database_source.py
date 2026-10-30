@@ -100,14 +100,14 @@ class DatabaseTests(unittest.TestCase):
             loader.assert_called_once_with(env_path)
             connector.assert_called_once_with(config)
 
-    def test_default_cli_reads_project_env_and_exports_reports_without_local_db(self):
+    def test_database_cli_reads_project_env_and_exports_reports_without_local_db(self):
         connection = Connection(Cursor())
         with tempfile.TemporaryDirectory() as directory, \
              patch('database_source.open_database', return_value=(connection, 'dbo')) as opener, \
              patch.dict('sys.modules', {'sqlite3': None}), \
              patch('logging.FileHandler', return_value=logging.NullHandler()), \
              patch('logging.basicConfig'), redirect_stdout(io.StringIO()):
-            exit_code = main(['--out', directory])
+            exit_code = main(['--database', '--out', directory])
             opener.assert_called_once_with(Path(__file__).resolve().parent.parent / '.env')
             self.assertIn(exit_code, (1, 2))  # synthetic source intentionally has invalid data
             summary_path = next(Path(directory).glob('run_*/summary.json'))

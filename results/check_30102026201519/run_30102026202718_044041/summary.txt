@@ -1,0 +1,13 @@
+PO/POP validation 30102026202718
+Rule 1: FAIL | Errors=2046 | Review=0 | Warning=0
+Rule 2: FAIL | Errors=19811 | Review=0 | Warning=0
+Rule 3: FAIL | Errors=19096 | Review=0 | Warning=0
+Rule 4: PASS | Errors=0 | Review=0 | Warning=0
+Rule 5: FAIL | Errors=2046 | Review=0 | Warning=0
+Rule 6: INCOMPLETE | Errors=0 | Review=2046 | Warning=0
+Rule 7: FAIL | Errors=59 | Review=0 | Warning=2046
+Rule 8: FAIL | Errors=27818 | Review=0 | Warning=0
+Rule 9: FAIL | Errors=39964 | Review=18918 | Warning=0
+Input issues: 0
+Report: /Users/milk/_AIS/product_catalog2/results/check_30102026201519/run_30102026202718_044041
+CSV source row = logical record, header = 1.

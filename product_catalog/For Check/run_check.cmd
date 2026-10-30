@@ -6,9 +6,5 @@ set "CHECK_PYTHON=%USERPROFILE%\.cache\codex-runtimes\codex-primary-runtime\depe
 if exist "%CHECK_PYTHON%" goto run
 set "CHECK_PYTHON=python"
 :run
-if "%~1"=="" (
-  "%CHECK_PYTHON%" "%~dp0validate_po_pop.py" --database
-) else (
-  "%CHECK_PYTHON%" "%~dp0validate_po_pop.py" %*
-)
+"%CHECK_PYTHON%" "%~dp0validate_po_pop.py" %*
 exit /b %errorlevel%

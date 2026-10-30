@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""PO/POP rules 1–9. Python 3.10+. SQL Server input, exact comparisons, full scans.
+"""PO/POP rules 1–9. Python 3.10+. Export or SQL Server input, exact comparisons, full scans.
 
-Reads SQL Server using product_catalog/.env. Validation runs in Python memory.
+Defaults to the latest project export. --database reads SQL Server using
+product_catalog/.env. Validation runs in Python memory.
 Exit codes: 0=all rules pass, 1=errors found, 2=incomplete or execution failure.
 The current approved rule definitions are in RULES_TH.md.
 """
@@ -152,6 +153,7 @@ def export_report(v, path, severity, verify=True):
  """
  wb=Workbook(write_only=True)
  expected_hash=hashlib.sha256(); rowcounts={}
+ body_alignment=Alignment(vertical='top',wrap_text=True)
  ws=None;sheetno=0;sheetrows=0
  def new_sheet(name,header):
   s=wb.create_sheet(name);s.freeze_panes='A2'
@@ -162,6 +164,7 @@ def export_report(v, path, severity, verify=True):
   for x in header:
    c=WriteOnlyCell(s,x);c.data_type='s';c.font=Font(name='Calibri',bold=True,color='FFFFFF');c.fill=PatternFill('solid',fgColor='283E57');c.alignment=Alignment(wrap_text=True);cells.append(c)
   s.append(cells);rowcounts[name]=1
+  LOG.info('Report %s: created sheet %s',path.name,name)
   expected_hash.update(json.dumps([name,header],ensure_ascii=False,separators=(',',':')).encode())
   return s
  def append(s,row):
@@ -171,12 +174,15 @@ def export_report(v, path, severity, verify=True):
    if isinstance(value,str) and len(value)>32767:raise ValueError('Report cell exceeds Excel limit; data was not truncated')
    c=WriteOnlyCell(s,value)
    if isinstance(value,str):c.data_type='s'  # literal '=' is never a formula
-   c.alignment=Alignment(vertical='top',wrap_text=True);cells.append(c);values.append(value)
+   c.alignment=body_alignment;cells.append(c);values.append(value)
   s.append(cells);rowcounts[s.title]+=1
+  if (rowcounts[s.title]-1)%10000==0:
+   LOG.info('Report %s: %s written %s rows',path.name,s.title,rowcounts[s.title]-1)
   expected_hash.update(json.dumps([s.title,values],ensure_ascii=False,separators=(',',':')).encode())
  base='Error Detail' if severity=='ERROR' else 'Review Detail'
  ws=new_sheet(base,REPORT_HEADERS+['Detail Part']);sheetno=1;sheetrows=1
  selected = sorted((i for i in v.issues if (i['severity']=='ERROR') == (severity=='ERROR')), key=lambda i: (float(i['rule']) if i['rule']!='INPUT' else 0, i['id']))
+ LOG.info('Report %s: writing %s cases',path.name,len(selected))
  for r in selected:
   row=[r[f] for f in REPORT_FIELDS]
   # Oversized evidence is continued, never silently truncated or discarded.
@@ -191,15 +197,20 @@ def export_report(v, path, severity, verify=True):
  if 'cv' in v.ready:
   ev=None;en=0;er=0;eh=['Case ID','Source File','Source Sheet','Source Record','PO ID','Characteristics ID','Char Name','value']
   from validation_rules import group
+  LOG.info('Report %s: indexing %s Char_Value records for source evidence',path.name,len(v.rows['cv']))
   occurrences = group(v.rows['cv'], 'po', 'cid', 'val')
+  LOG.info('Report %s: writing source evidence',path.name)
   for issue in sorted(selected, key=lambda i: i['id']):
    if issue['rule'] != '9.4':continue
    for cv in occurrences[issue['po'],issue['cid'],issue['val']]:
     if ev is None or er>=1000000:
      en+=1;ev=new_sheet('Source Occurrences'+(' '+str(en) if en>1 else ''),eh);er=1
     append(ev,[issue['id'], *[cv[f] for f in ('src','sheet','rn','po','cid','name','val')]]);er+=1
+ LOG.info('Report %s: saving XLSX (%s rows including headers)',path.name,sum(rowcounts.values()))
  wb.save(path)
+ LOG.info('Report %s: saved (%s bytes)',path.name,path.stat().st_size)
  if verify:
+  LOG.info('Report %s: verifying every cell',path.name)
   actual=hashlib.sha256();rb=load_workbook(path,read_only=True,data_only=False)
   for s in rb:
    count=0
@@ -207,9 +218,12 @@ def export_report(v, path, severity, verify=True):
     values=['' if c.value is None else c.value for c in row]
     if any(c.data_type=='f' for c in row):raise AssertionError('Unexpected formula in report')
     actual.update(json.dumps([s.title,values],ensure_ascii=False,separators=(',',':')).encode());count+=1
+    if count%10000==0:LOG.info('Report %s: %s verified %s/%s rows',path.name,s.title,count,rowcounts[s.title])
    if count!=rowcounts[s.title]:raise AssertionError('Report row count mismatch')
+   LOG.info('Report %s: %s verification complete (%s rows)',path.name,s.title,count)
   rb.close()
   if actual.digest()!=expected_hash.digest():raise AssertionError('Report cell-by-cell verification failed')
+ LOG.info('Report %s: complete',path.name)
  return rowcounts
 
 
@@ -226,17 +240,35 @@ def config_read(path):
 
 def main(argv=None):
  ap=argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
+ ap.add_argument('folder',nargs='?',type=Path,help='Export round name or path; omitted: latest round in the project export directory')
  ap.add_argument('--po',type=Path);ap.add_argument('--pop',type=Path);ap.add_argument('--meta',type=Path)
  ap.add_argument('--database',action='store_true',help='Read SQL Server using the project .env and template_mapping')
- ap.add_argument('--input-dir',type=Path,help='Read split XLSX files from an export/xlsx folder; use sibling csv for large Char_Value')
+ ap.add_argument('--input-dir',type=Path,help='Export round name, round path or XLSX directory; use sibling csv for large Char_Value')
+ ap.add_argument('--latest-export',type=Path,help='Use the latest DDMMYYYYHHMMSS export folder under this directory')
  ap.add_argument('--list-inputs',action='store_true',help='List resolved --input-dir files without running validation')
  ap.add_argument('--env',type=Path,default=Path(__file__).resolve().parent.parent/'.env')
  ap.add_argument('--check-connection',action='store_true',help='Test database connection without running validation')
  ap.add_argument('--char-value',type=Path,nargs='+',help='CSV/ZIP หนึ่งหรือหลายไฟล์; ไม่ระบุจะใช้ Sheet Char_Value ใน PO')
  ap.add_argument('--config',type=Path,default=Path(__file__).with_name('config.json'))
- ap.add_argument('--out',type=Path,default=Path(__file__).resolve().parent/'results')
+ ap.add_argument('--out',type=Path,default=Path(__file__).resolve().parents[2]/'results')
  args=ap.parse_args(argv)
  sources=None;cv_paths=None
+ if args.folder:
+  if any((args.input_dir,args.latest_export,args.database,args.po,args.pop,args.meta,args.check_connection)):
+   ap.error('folder cannot be combined with another input mode')
+  args.input_dir=args.folder
+ if args.latest_export:
+  if any((args.input_dir,args.database,args.po,args.pop,args.meta,args.check_connection)):
+   ap.error('--latest-export cannot be combined with other input modes or --check-connection')
+  from export_source import latest_export_input
+  try:args.input_dir=latest_export_input(args.latest_export)
+  except (OSError,ValueError) as error:ap.error(str(error))
+  print(f'Using latest export: {args.input_dir}')
+ elif args.input_dir or not any((args.database,args.po,args.pop,args.meta,args.check_connection)):
+  from export_source import resolve_export_input
+  try:args.input_dir=resolve_export_input(args.input_dir)
+  except (OSError,ValueError) as error:ap.error(str(error))
+  print(f'Using export: {args.input_dir}')
  if args.list_inputs and not args.input_dir:ap.error('--list-inputs requires --input-dir')
  if args.input_dir:
   if any((args.database,args.po,args.pop,args.meta,args.check_connection)):
@@ -257,9 +289,12 @@ def main(argv=None):
   ap.error('--database cannot be combined with file inputs')
  if not args.input_dir and not args.database and any((args.po,args.pop,args.meta,args.char_value)) and not all((args.po,args.pop,args.meta)):
   ap.error('File mode requires all of --po, --pop and --meta')
- if not args.input_dir and not any((args.po,args.pop,args.meta,args.char_value)):args.database=True
  now=datetime.now(timezone(timedelta(hours=7)));stamp=now.strftime('%d%m%Y%H%M%S')
- out=args.out/('run_'+stamp)
+ if args.input_dir:
+  source_dir=args.input_dir.parent if args.input_dir.name.lower()=='xlsx' else args.input_dir
+  out=args.out/('check_'+source_dir.name)/('run_'+stamp+'_'+now.strftime('%f'))
+ else:
+  out=args.out/('run_'+stamp)
  # Avoid collision or accidental overwrite when running twice within a second.
  out.mkdir(parents=True,exist_ok=False)
  logging.basicConfig(level=logging.INFO,format='%(asctime)s %(message)s',handlers=[logging.StreamHandler(),logging.FileHandler(out/'run.log',encoding='utf-8')])

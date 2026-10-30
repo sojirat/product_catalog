@@ -1,0 +1,192 @@
+{
+  "version": "1.1.0",
+  "rules": [
+    {
+      "rule": 1,
+      "status": "FAIL",
+      "error_cases": 2046,
+      "review_cases": 0,
+      "warning_cases": 0,
+      "complete": true
+    },
+    {
+      "rule": 2,
+      "status": "FAIL",
+      "error_cases": 19811,
+      "review_cases": 0,
+      "warning_cases": 0,
+      "complete": true
+    },
+    {
+      "rule": 3,
+      "status": "FAIL",
+      "error_cases": 19096,
+      "review_cases": 0,
+      "warning_cases": 0,
+      "complete": true
+    },
+    {
+      "rule": 4,
+      "status": "PASS",
+      "error_cases": 0,
+      "review_cases": 0,
+      "warning_cases": 0,
+      "complete": true
+    },
+    {
+      "rule": 5,
+      "status": "FAIL",
+      "error_cases": 2046,
+      "review_cases": 0,
+      "warning_cases": 0,
+      "complete": true
+    },
+    {
+      "rule": 6,
+      "status": "INCOMPLETE",
+      "error_cases": 0,
+      "review_cases": 2046,
+      "warning_cases": 0,
+      "complete": false
+    },
+    {
+      "rule": 7,
+      "status": "FAIL",
+      "error_cases": 59,
+      "review_cases": 0,
+      "warning_cases": 2046,
+      "complete": true
+    },
+    {
+      "rule": 8,
+      "status": "FAIL",
+      "error_cases": 27818,
+      "review_cases": 0,
+      "warning_cases": 0,
+      "complete": true
+    },
+    {
+      "rule": 9,
+      "status": "FAIL",
+      "error_cases": 39964,
+      "review_cases": 18918,
+      "warning_cases": 0,
+      "complete": false
+    }
+  ],
+  "input_issues": 0,
+  "inputs": [
+    {
+      "source": "/Users/milk/_AIS/product_catalog2/export/30102026201519/xlsx/Product Offer/ProductOffer_30102026201519.xlsx",
+      "sheet": "ProductOffer",
+      "table": "po",
+      "records": 2122,
+      "fully_blank_rows": 0,
+      "all_hidden_filtered_rows_included": true
+    },
+    {
+      "source": "/Users/milk/_AIS/product_catalog2/export/30102026201519/xlsx/Product Offer/product_offer_price_30102026201519.xlsx",
+      "sheet": "Product Offer Price",
+      "table": "o",
+      "records": 9898,
+      "fully_blank_rows": 0,
+      "all_hidden_filtered_rows_included": true
+    },
+    {
+      "source": "/Users/milk/_AIS/product_catalog2/export/30102026201519/xlsx/Product Offer/PO_Product_Variants_30102026201519.xlsx",
+      "sheet": "Product Variants",
+      "table": "v",
+      "records": 19825,
+      "fully_blank_rows": 0,
+      "all_hidden_filtered_rows_included": true
+    },
+    {
+      "source": "/Users/milk/_AIS/product_catalog2/export/30102026201519/xlsx/Product Offer/Variant_ProductOffering_Price_30102026201519.xlsx",
+      "sheet": "variantProductOfferingPrice",
+      "table": "l",
+      "records": 27524,
+      "fully_blank_rows": 0,
+      "all_hidden_filtered_rows_included": true
+    },
+    {
+      "source": "/Users/milk/_AIS/product_catalog2/export/30102026201519/xlsx/Product Offer Price/productOfferPrice_30102026201519.xlsx",
+      "sheet": "Product Offer Price",
+      "table": "m",
+      "records": 9898,
+      "fully_blank_rows": 0,
+      "all_hidden_filtered_rows_included": true
+    },
+    {
+      "source": "/Users/milk/_AIS/product_catalog2/export/30102026201519/xlsx/Product Offer Price/CharacteristicsForPrice_30102026201519.xlsx",
+      "sheet": "Characteristics for Price",
+      "table": "c",
+      "records": 47891,
+      "fully_blank_rows": 0,
+      "all_hidden_filtered_rows_included": true
+    },
+    {
+      "source": "/Users/milk/_AIS/product_catalog2/export/30102026201519/xlsx/MetaExtension POP/POP_metaExt_productInfo_30102026201519.xlsx",
+      "sheet": "metaExtension POP",
+      "table": "t",
+      "records": 19110,
+      "fully_blank_rows": 0,
+      "all_hidden_filtered_rows_included": true
+    },
+    {
+      "source": "/Users/milk/_AIS/product_catalog2/export/30102026201519/csv/Product Offer/PO_Char_Value_30102026201519.csv",
+      "sheet": "Char_Value CSV",
+      "table": "cv",
+      "records": 3159950,
+      "fully_blank_rows": 0,
+      "row_numbering": "logical CSV record; header=1"
+    }
+  ],
+  "coverage": {
+    "2_excluded_only_links": 0,
+    "7_pass_at_pop": 773,
+    "9_variant_pairs": 129418,
+    "9_5_single_variant_groups": 4200,
+    "9_5_distinct_sku_groups_pass": 5698
+  },
+  "source_counts": {
+    "po": 2122,
+    "m": 9898,
+    "o": 9898,
+    "v": 19825,
+    "l": 27524,
+    "c": 47891,
+    "t": 19110,
+    "cv": 3159950
+  },
+  "cv_blank_value_records": 1604916,
+  "exclude_config": {
+    "po": 1,
+    "pop": 382
+  },
+  "excluded_source_rows": {
+    "po": 0,
+    "pop": 0,
+    "variants": 0
+  },
+  "comparison": "exact, case-sensitive, no trim; no sampling",
+  "counts_definition": "Error cases are rule-specific. The same entity can fail multiple rules. Rule 9.4 counts distinct PO+ID+value, not original rows.",
+  "input_sha256": {
+    "/Users/milk/_AIS/product_catalog2/export/30102026201519/xlsx/Product Offer/ProductOffer_30102026201519.xlsx": "23578561cc96bbb9e9b6e46f4da15c92b98f9927660f2a4229f6269dd238e497",
+    "/Users/milk/_AIS/product_catalog2/export/30102026201519/xlsx/Product Offer/product_offer_price_30102026201519.xlsx": "c6903bbe6581653551e137d99be275b4c562281aa1433af892a1952c30d2d931",
+    "/Users/milk/_AIS/product_catalog2/export/30102026201519/xlsx/Product Offer/PO_Product_Variants_30102026201519.xlsx": "f4c15558ee7422d1a60fae569e687c9e6df3d4f0d63bb9a6afb8eebfce253288",
+    "/Users/milk/_AIS/product_catalog2/export/30102026201519/xlsx/Product Offer/Variant_ProductOffering_Price_30102026201519.xlsx": "4bb593fcc58e5b123844559e290bf30c4c2dd67fe81ff28c0e1182c3aed45327",
+    "/Users/milk/_AIS/product_catalog2/export/30102026201519/xlsx/Product Offer Price/productOfferPrice_30102026201519.xlsx": "089ecaf8ea2546209cd758c5e54ce04dbc45fa0801a9c58f91f3b970157999b7",
+    "/Users/milk/_AIS/product_catalog2/export/30102026201519/xlsx/Product Offer Price/CharacteristicsForPrice_30102026201519.xlsx": "883085378cb6432df8d9fdd6162f7c33a4df1705543fd416118467159cdbfc93",
+    "/Users/milk/_AIS/product_catalog2/export/30102026201519/xlsx/MetaExtension POP/POP_metaExt_productInfo_30102026201519.xlsx": "dd242f2bacd889cdd54f459f01920ee2c94d4cda4ad46786b962f2b6e9acd267",
+    "/Users/milk/_AIS/product_catalog2/export/30102026201519/csv/Product Offer/PO_Char_Value_30102026201519.csv": "3102c56e524ff7f377900f38ffef339dcee6f16b7c0e29597db61307006dfc35"
+  },
+  "run_time_bangkok": "2026-10-30T20:27:18.044041+07:00",
+  "error_report_rows": {
+    "Error Detail": 110841,
+    "Source Occurrences": 11565
+  },
+  "review_report_rows": {
+    "Review Detail": 23011
+  },
+  "report_verification": "All written cells reopened and matched; no sampling"
+}

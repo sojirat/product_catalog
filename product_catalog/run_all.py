@@ -212,7 +212,7 @@ def reset_and_load_product_mst(cursor, connection, database_name: str, run_confi
     result_rows = call_procedure(
         cursor,
         connection,
-        "load_product_mst_only",
+        "load_product_mst", #load_product_mst_only
         (run_config.load_batch_name, run_config.load_created_by),
     )
     batch_id = find_result_value(result_rows, "batch_id")

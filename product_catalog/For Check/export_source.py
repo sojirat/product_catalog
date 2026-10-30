@@ -1,5 +1,21 @@
 """Resolve the split XLSX files produced by export_template_mapping.py."""
+from datetime import datetime
 from pathlib import Path
+
+DEFAULT_EXPORT_DIR = Path(__file__).resolve().parents[2] / 'export'
+
+
+def resolve_export_input(value=None):
+    """Accept an export round name, a round path, or an XLSX directory."""
+    if value is None:
+        return latest_export_input(DEFAULT_EXPORT_DIR)
+    value = Path(value)
+    root = DEFAULT_EXPORT_DIR / value if not value.is_absolute() and len(value.parts) == 1 else value
+    if (root / 'xlsx').is_dir():
+        root = root / 'xlsx'
+    if not root.is_dir():
+        raise NotADirectoryError(root)
+    return root.resolve()
 
 
 # Table key: export subfolder, file prefix, raw workbook sheet name.
@@ -12,6 +28,25 @@ EXPORT_FILES = {
     'c': ('Product Offer Price', 'CharacteristicsForPrice_', 'Characteristics for Price'),
     't': ('MetaExtension POP', 'POP_metaExt_productInfo_', 'metaExtension POP'),
 }
+
+
+def latest_export_input(export_dir):
+    """Select the newest export by its DDMMYYYYHHMMSS folder name."""
+    candidates = []
+    for folder in export_dir.iterdir():
+        if not folder.is_dir() or len(folder.name) != 14 or not folder.name.isascii() or not folder.name.isdigit():
+            continue
+        try:
+            timestamp = datetime.strptime(folder.name, '%d%m%Y%H%M%S')
+        except ValueError:
+            continue
+        candidates.append((timestamp, folder))
+    if not candidates:
+        raise ValueError(f'No timestamped export folders (DDMMYYYYHHMMSS) found in {export_dir}')
+    root = max(candidates)[1] / 'xlsx'
+    if not root.is_dir():
+        raise NotADirectoryError(f'Latest export has no xlsx folder: {root}')
+    return root.resolve()
 
 
 def one_file(folder, pattern):

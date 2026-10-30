@@ -155,8 +155,10 @@ def export_report(v, path, severity, verify=True):
  expected_hash=hashlib.sha256(); rowcounts={}
  body_alignment=Alignment(vertical='top',wrap_text=True)
  ws=None;sheetno=0;sheetrows=0
- def new_sheet(name,header):
+ def new_sheet(name,header,has_issues=True):
+  if not has_issues:name+=' PASS'
   s=wb.create_sheet(name);s.freeze_panes='A2'
+  s.sheet_properties.tabColor='FFFF0000' if has_issues else 'FF00B050'
   for i in range(1,len(header)+1):s.column_dimensions[get_column_letter(i)].width=22
   for i in (5,6,9,11,16,17):
    if i<=len(header):s.column_dimensions[get_column_letter(i)].width=48
@@ -187,14 +189,23 @@ def export_report(v, path, severity, verify=True):
   buckets[r['rule'].split('.')[0]].append(r)
  for rule,issues in buckets.items():
   base='Input Issues' if rule=='INPUT' else 'Rule '+rule
-  ws=new_sheet(base,REPORT_HEADERS+['Detail Part']);sheetno=1;sheetrows=1
+  def detail_parts(issue):
+   return max([1]+[(len(issue[f])+29999)//30000 for f in REPORT_FIELDS if isinstance(issue[f],str)])
+  total_rows=sum(detail_parts(issue) for issue in issues)
+  def detail_sheet(number):
+   name=base+(' '+str(number) if number>1 else '')
+   if issues and severity=='ERROR':
+    count=min(999999,total_rows-(number-1)*999999)
+    name+=f' (Errors {count})'
+   return new_sheet(name,REPORT_HEADERS+['Detail Part'],has_issues=bool(issues))
+  ws=detail_sheet(1);sheetno=1;sheetrows=1
   for r in issues:
    row=[r[f] for f in REPORT_FIELDS]
    # Oversized evidence is continued, never silently truncated or discarded.
-   parts=max([1]+[(len(x)+29999)//30000 for x in row if isinstance(x,str)])
+   parts=detail_parts(r)
    for part in range(parts):
     if sheetrows>=1000000:
-     ws.auto_filter.ref=f'A1:S{sheetrows}';sheetno+=1;ws=new_sheet(base+' '+str(sheetno),REPORT_HEADERS+['Detail Part']);sheetrows=1
+     ws.auto_filter.ref=f'A1:S{sheetrows}';sheetno+=1;ws=detail_sheet(sheetno);sheetrows=1
     vals=[x[part*30000:(part+1)*30000] if isinstance(x,str) and len(x)>30000 else x for x in row]
     append(ws,vals+[f'{part+1}/{parts}']);sheetrows+=1
   ws.auto_filter.ref=f'A1:S{sheetrows}'

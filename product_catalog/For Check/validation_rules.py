@@ -47,11 +47,16 @@ class RuleValidator:
     def has(self, rule, *tables):
         missing = sorted(set(tables) - self.ready)
         if missing:
-            self.add(rule, 'REVIEW', 'MISSING_INPUT', 'ขาดหรืออ่านข้อมูลไม่สำเร็จ: ' + ', '.join(missing))
+            names = ', '.join(SCHEMAS[table][0] + ' [' + table + ']' for table in missing)
+            self.add(rule, 'REVIEW', 'MISSING_INPUT',
+                     'ยังตรวจข้อนี้ได้ไม่ครบ เพราะข้อมูลต้นทางขาดหรืออ่านไม่สำเร็จ: ' + names +
+                     ' ให้ตรวจไฟล์ต้นทางและรายละเอียดใน run.log ก่อนสรุปผลกฎนี้')
         return not missing
 
     def input_error(self, table, message, **values):
-        self.add('INPUT', 'REVIEW', 'INPUT_UNCERTAIN', table + ': ' + message, **values)
+        self.add('INPUT', 'REVIEW', 'INPUT_UNCERTAIN',
+                 'อ่านหรือใช้ข้อมูลจาก ' + SCHEMAS[table][0] + ' ไม่สำเร็จ: ' + message +
+                 ' ให้ตรวจไฟล์ ชีต และแถวต้นทางที่ระบุ ก่อนนำผลตรวจที่ใช้ข้อมูลชุดนี้ไปสรุป', **values)
 
     def indexes(self):
         self.am = [r for r in self.rows['m'] if r['pid'] not in self.ex_pop]
@@ -288,7 +293,7 @@ class RuleValidator:
             self.finding('9.4', 'UNUSED_UNCERTAIN' if uncertain else 'UNUSED_CHARACTERISTIC', rows[0],
                          severity='REVIEW' if uncertain else 'ERROR', occurrences=len(rows),
                          expected='ต้องมีการใช้คู่ ID + value ภายใต้ PO เดียวกัน',
-                         related='Record แรกของคู่ข้อมูล; Source Occurrences เก็บทุก Record ที่ซ้ำ')
+                         related='แสดงแถวแรกของคู่ PO + ID + value นี้; ดูทุกแถวที่ซ้ำในชีต Rule 9 Sources')
 
     def rule95(self):
         if not self.has('9.5', 'l', 'v'):
@@ -352,46 +357,45 @@ class RuleValidator:
                     counts_definition='Error cases are rule-specific. The same entity can fail multiple rules. Rule 9.4 counts distinct PO+ID+value, not original rows.')
 
 
-REASONS = {'MISSING_META': 'ไม่พบ POP ใน POP_metaExt_productInfo',
- 'SKU_NOT_FOUND': 'ไม่มีข้อมูลใน Meta Extension POP (productInfo)',
- 'VARIANT_LINK_MISSING': 'ไม่มีข้อมูลใน PO (Variant_ProductOffering_Price)',
- 'POP_MISMATCH': 'ไม่ตรงกับ POP ใน Meta POP',
- 'POP_LINK_MISSING': 'ไม่พบ Variant ที่เชื่อม POP',
- 'VARIANT_MISSING': 'Variant ID ที่เชื่อม POP ไม่มีใน Product_Variants',
- 'SKU_MATCH_COUNT': 'จำนวนแถว Variant ที่ SKU ตรง matCode ไม่เท่ากับ 1',
- 'DUPLICATE_CHAR_NAME': 'Char Name ซ้ำภายใน POP',
- 'UNIT_MISSING': 'ไม่พบ unit_name',
- 'UNIT_EMPTY': 'unit_name มี value ว่าง',
- 'MODEL_MULTIPLE': 'model มีมากกว่า 1 แถว',
- 'MODEL_MISSING': 'ไม่พบ model: ยังไม่มีเกณฑ์ตัดสินที่ยืนยัน',
- 'MODEL_EMPTY': 'model.value ว่าง: ยังไม่มีเกณฑ์ตัดสินที่ยืนยัน',
- 'MODEL_CHAR_NAME_MULTIPLE': 'Char Name ที่ตรง model.value มีมากกว่า 1 แถว',
- 'NO_POP_CHARACTERISTICS': 'POP ไม่มี Characteristics for Price แต่ยังตรวจ PO ต่อ',
- 'PO_MAPPING_MISSING': 'ไม่พบ PO ของ POP นั้น',
- 'MULTIPLE_PO': 'มีมากกว่า 1 PO',
- 'PO_CV_MISSING': 'ไม่พบ PO ใน Char_Value',
- 'DEVICE_MAIN_MISSING': 'PO เป็น DEVICE แต่ไม่มี main_model ที่มีค่าทั้งระดับ POP และ PO',
- 'DUPLICATE_MAPPING': 'หลาย Mapping rows แต่เป็น PO เดียวกัน ต้องยืนยันเกณฑ์',
- 'CV_EXACT_MISSING': 'ไม่พบ Char_Value ที่ตรง PO + Characteristics ID + Char Name + value '
-                     'ในแถวเดียวกัน',
- 'UNUSED_CHARACTERISTIC': 'คู่ข้อมูลใน Char_Value ไม่ถูกใช้ใน Variant หรือ POP ของ PO เดียวกัน',
- 'UNUSED_UNCERTAIN': 'ยังยืนยันว่าไม่ได้ใช้ไม่ได้ เพราะ PO มีรายการ comma ที่อ่านไม่ได้หรือ '
-                     'Mapping กำกวม',
- 'SAME_OR_EMPTY_SKU': 'SKU ซ้ำหรือว่าง ไม่ใช่ Error อัตโนมัติ ต้องยืนยันการแยกแยะ Variant',
- 'DUPLICATE_LEVELS': 'คู่ Characteristic เดียวกันซ้ำทั้ง Variant และ POP',
- 'DIFFERENT_LEVEL_VALUES': 'ID เดียวกันแต่ value ต่างระหว่าง Variant และ POP ต้องยืนยันกฎ '
-                           'Override/หลายค่า',
- 'MULTI_VARIANT_VALUES': 'Characteristic มีหลายสมาชิกใน Variant เดียวกัน ต้องยืนยันกฎ',
- 'MULTI_POP_VALUES': 'Characteristic มีหลาย value ใน POP เดียวกัน ต้องยืนยันกฎ',
- 'VARIANT_PO_MISSING': 'PO ของ Variant ไม่มีใน ProductOffer',
- 'LINK_VARIANT_MISSING': 'Variant ที่อ้างอิงไม่มีใน Product_Variants',
- 'LINK_POP_MISSING': 'POP ที่อ้างอิงไม่มีใน POP master',
- 'OWNER_MISSING': 'POP ที่เชื่อม Variant ไม่มี PO Mapping',
- 'OWNER_MULTIPLE': 'POP ที่เชื่อม Variant มีหลาย PO',
- 'OWNER_MISMATCH': 'PO ของ Variant ไม่ตรง PO ของ POP',
- 'VARIANT_PAIR_NOT_ALLOWED': 'คู่ Characteristic ของ Variant ไม่พบใน Char_Value ที่มีค่า',
- 'POP_PAIR_NOT_ALLOWED': 'คู่ Characteristic ของ POP ไม่พบใน Char_Value ที่มีค่า',
- 'LENGTH_MISMATCH': 'จำนวน Characteristics และ value ไม่เท่ากัน',
- 'EMPTY_MEMBER': 'มีสมาชิกว่างในรายการ comma',
- 'BOTH_EMPTY': 'ทั้งสอง Column ว่าง',
- 'AMBIGUOUS_QUOTES': 'มี quoted comma ภายในรายการ ต้องยืนยันรูปแบบการแยก'}
+REASONS = {
+ 'MISSING_META': 'พบ POP ID นี้ในรายการหลัก Product Offer Price แต่ไม่พบ POP ID เดียวกันใน POP_metaExt_productInfo ให้ตรวจว่าข้อมูล Meta ของ POP นี้ตกหล่นหรือระบุ ID ต่างกัน',
+ 'SKU_NOT_FOUND': 'พบ Variant นี้ใน Product Variants แต่ไม่พบ matCode ที่ตรงกับ SKU ของ Variant ใน POP_metaExt_productInfo ให้ค้น SKU จากคอลัมน์ SKU / matCode ในข้อมูล Meta',
+ 'VARIANT_LINK_MISSING': 'พบ Variant และพบ SKU ใน POP_metaExt_productInfo แล้ว แต่ไม่พบ Variant ID เดียวกันใน Variant_ProductOffering_Price จึงหา POP ที่เชื่อมกับ Variant ไม่ได้ ให้ตรวจรายการเชื่อมและการสะกด Variant ID',
+ 'POP_MISMATCH': 'พบ SKU ใน POP_metaExt_productInfo และพบรายการเชื่อม Variant แล้ว แต่ POP ID จากรายการเชื่อมไม่ตรงกับ POP ใดของ matCode นั้น ให้เทียบ POP ID ใน Variant_ProductOffering_Price กับข้อมูล Meta ของ SKU นี้',
+ 'POP_LINK_MISSING': 'พบ POP นี้ใน POP_metaExt_productInfo แต่ไม่พบรายการเชื่อม POP ID เดียวกันใน Variant_ProductOffering_Price จึงย้อนหา Variant ของ POP นี้ไม่ได้ ให้ตรวจรายการเชื่อมของ POP ID ที่ระบุ',
+ 'VARIANT_MISSING': 'รายการเชื่อมของ POP นี้อ้างถึง Variant ID ที่ไม่มีใน Product Variants ให้ค้น Variant ID ที่ระบุ แล้วตรวจว่าข้อมูล Variant ตกหล่นหรือ ID ในรายการเชื่อมไม่ตรงกัน',
+ 'SKU_MATCH_COUNT': 'เมื่อตาม POP จากข้อมูล Meta ไปยัง Variant ที่เชื่อมกัน พบจำนวนแถว Variant ที่ SKU ตรงกับ matCode ไม่เท่ากับ 1 ดูจำนวนที่พบในคอลัมน์ value แล้วตรวจรายการเชื่อมและแถว Variant ที่ขาดหรือซ้ำ',
+ 'DUPLICATE_CHAR_NAME': 'พบ Char Name เดียวกันมากกว่า 1 แถวภายใน POP เดียวกันใน Characteristics for Price ให้ตรวจทุกแถวของ POP ID + Char Name นี้ จำนวนแถวในกลุ่มอยู่ใน Related Evidence',
+ 'UNIT_MISSING': 'พบ POP ในรายการหลัก แต่ไม่มี Characteristics ID ของ unit_name ใน Characteristics for Price ให้ตรวจรายการ unit_name ของ POP ID นี้ ตาม ID ที่ระบุในคอลัมน์ Characteristics ID',
+ 'UNIT_EMPTY': 'พบรายการ unit_name ของ POP นี้ใน Characteristics for Price แต่คอลัมน์ value ว่าง ให้ตรวจค่าหน่วยของแถวต้นทางที่ระบุ',
+ 'MODEL_MULTIPLE': 'เมื่อนับรายการ model ของ POP นี้ร่วมกับจำนวนแถว POP ในรายการหลัก ได้มากกว่า 1 รายการ ให้ตรวจแถว model ใน Characteristics for Price และ POP ID ที่ซ้ำในรายการหลัก ดูจำนวนที่นับได้ใน Related Evidence',
+ 'MODEL_MISSING': 'POP นี้ไม่มีรายการ model ใน Characteristics for Price จึงตรวจ model ต่อไม่ได้ ให้ตรวจว่าข้อมูลตกหล่นหรืออนุญาตให้ไม่มี model ปัจจุบันยังไม่มีเกณฑ์ยืนยันกรณีนี้ ระดับผลตรวจใช้ตาม config',
+ 'MODEL_EMPTY': 'พบรายการ model ของ POP นี้ แต่ value ว่าง จึงนำค่าไปตรวจ Char Name ต่อไม่ได้ ให้ตรวจแถว model ต้นทางและยืนยันว่าอนุญาตให้ว่างหรือไม่ ระดับผลตรวจใช้ตาม config',
+ 'MODEL_CHAR_NAME_MULTIPLE': 'นำ value ของ model ไปค้น Char Name ภายใน POP เดียวกันแล้วพบมากกว่า 1 แถว ให้ตรวจ Char Name ที่ซ้ำใน Characteristics for Price โดย Related Evidence ระบุแถวต้นทางของ model',
+ 'NO_POP_CHARACTERISTICS': 'พบ POP ในรายการหลัก แต่ไม่มีแถวใดของ POP นี้ใน Characteristics for Price ให้ตรวจว่าข้อมูล Characteristics ตกหล่นหรือไม่ โปรแกรมยังตรวจ main_model จาก PO ที่เชื่อมกันต่อ',
+ 'PO_MAPPING_MISSING': 'ไม่พบรายการเชื่อม POP ID นี้กับ PO ในข้อมูล Product Offer Price ฝั่ง PO จึงระบุ PO เจ้าของ POP เพื่อใช้ตรวจต่อไม่ได้ ให้ตรวจคู่ Product Offer ID + Product Offer Price ID ในข้อมูลต้นทาง',
+ 'MULTIPLE_PO': 'พบ POP ID นี้เชื่อมกับ PO ID ที่ต่างกันมากกว่า 1 ค่าในข้อมูล Product Offer Price ฝั่ง PO จึงเลือก PO เจ้าของเพียงรายการเดียวไม่ได้ ให้ตรวจว่า POP นี้ควรอยู่ภายใต้ PO ใด',
+ 'PO_CV_MISSING': 'POP นี้ไม่มี main_model ที่มีค่า และเมื่อย้อนหา PO เจ้าของแล้ว ไม่พบแถวของ PO ID นั้นใน Char_Value จึงตรวจข้อมูลสำรองของ PO ไม่ได้ ให้ตรวจข้อมูล Char_Value ของ PO ID ที่ระบุ',
+ 'DEVICE_MAIN_MISSING': 'POP นี้ไม่มี main_model ที่มีค่า และ PO เจ้าของมี product_type = DEVICE แต่ใน Char_Value ของ PO ก็ไม่มี main_model ที่มีค่า ให้ตรวจ main_model ใน Characteristics for Price ของ POP หรือ Char_Value ของ PO นี้',
+ 'DUPLICATE_MAPPING': 'พบรายการเชื่อม POP กับ PO มากกว่า 1 แถว แต่ทุกแถวอ้างถึง PO เดียวกัน ให้ตรวจแถวซ้ำในข้อมูล Product Offer Price ฝั่ง PO และยืนยันว่าอนุญาตให้มีหลายแถวหรือไม่ ระดับผลตรวจใช้ตาม config',
+ 'CV_EXACT_MISSING': 'พบ Characteristic ของ POP แต่ไม่พบแถวใน Char_Value ของ PO เจ้าของที่ตรงครบทั้ง PO ID + Characteristics ID + Char Name + value ในแถวเดียวกัน ให้เทียบค่าทั้งสี่คอลัมน์กับข้อมูลต้นทาง แม้ ID และ value ตรงแต่ชื่อแตกต่างก็ไม่ผ่านข้อนี้',
+ 'UNUSED_CHARACTERISTIC': 'พบคู่ Characteristics ID + value ที่มีค่าใน Char_Value ของ PO นี้ แต่ไม่พบการใช้คู่เดียวกันใน Variant หรือ Characteristics for Price ของ POP ภายใต้ PO เดียวกัน ให้ตรวจว่าคู่นี้ยังจำเป็นหรือขาดรายการใช้งาน การใช้ใน PO อื่นไม่นับ',
+ 'UNUSED_UNCERTAIN': 'ยังไม่พบการใช้คู่ Characteristics ID + value นี้ แต่ PO มีรายการ comma ของ Variant ที่แยกคู่ไม่ได้ หรือมี POP ที่เชื่อมหลาย PO จึงยังยืนยันว่าไม่ได้ใช้ไม่ได้ ให้ตรวจรายการที่กำกวมก่อนสรุปข้อนี้',
+ 'SAME_OR_EMPTY_SKU': 'มีหลาย Variant ภายใต้ PO เดียวกันที่เชื่อม POP เดียวกัน แต่ SKU บางรายการซ้ำหรือว่าง จึงใช้ SKU แยกแต่ละ Variant ได้ไม่ครบ ให้ตรวจ SKU ของกลุ่มนี้และยืนยันเกณฑ์การแยก Variant ดูจำนวนใน Related Evidence',
+ 'DUPLICATE_LEVELS': 'พบ Characteristics ID + value คู่เดียวกันทั้งใน Variant และ Characteristics for Price ของ POP ที่ Variant เชื่อมอยู่ จึงเป็นข้อมูลซ้ำระหว่างสองระดับ ให้เทียบคู่ที่ระบุ แล้วตรวจว่าควรกำหนดไว้ที่ระดับใด',
+ 'DIFFERENT_LEVEL_VALUES': 'Variant และ POP ที่เชื่อมกันมี Characteristics ID เดียวกัน แต่พบ value ที่ต่างกัน ให้เทียบ value ทั้งสองระดับและยืนยันว่าอนุญาตให้ Override หรือมีหลายค่าได้หรือไม่ ระดับผลตรวจใช้ตาม config',
+ 'MULTI_VARIANT_VALUES': 'ใน Variant เดียวกัน พบ Characteristics ID นี้มากกว่า 1 ตำแหน่งในรายการ comma โดย value อาจเหมือนหรือต่างกัน ให้ตรวจรายการ specCharacteristics และ value แล้วนำเกณฑ์หลายค่ามายืนยันก่อนสรุป',
+ 'MULTI_POP_VALUES': 'ใน POP เดียวกัน พบ Characteristics ID นี้มี value ต่างกันมากกว่า 1 ค่าใน Characteristics for Price ให้ตรวจทุกแถวของ POP ID + Characteristics ID นี้และยืนยันว่าอนุญาตให้มีหลายค่าหรือไม่',
+ 'VARIANT_PO_MISSING': 'Variant ระบุ PO ID ที่ไม่พบในรายการหลัก ProductOffer ให้ค้น PO ID ที่ระบุ แล้วตรวจว่ารายการ PO ตกหล่นหรือ Product Id ของ Variant อ้างอิงไม่ถูกต้อง',
+ 'LINK_VARIANT_MISSING': 'พบรายการใน Variant_ProductOffering_Price ที่อ้างถึง Variant ID ซึ่งไม่มีใน Product Variants ให้เทียบ Variant ID ระหว่างรายการเชื่อมกับข้อมูล Variant',
+ 'LINK_POP_MISSING': 'พบรายการใน Variant_ProductOffering_Price ที่อ้างถึง POP ID ซึ่งไม่มีในรายการหลัก Product Offer Price ให้ตรวจ POP ID ในรายการเชื่อมและข้อมูลหลักของ POP',
+ 'OWNER_MISSING': 'POP ที่รายการเชื่อม Variant อ้างถึง ไม่มีรายการระบุ PO เจ้าของในข้อมูล Product Offer Price ฝั่ง PO ให้ตรวจคู่ Product Offer ID + Product Offer Price ID ของ POP นี้',
+ 'OWNER_MULTIPLE': 'POP ที่รายการเชื่อม Variant อ้างถึง มี PO เจ้าของมากกว่า 1 ค่าในข้อมูล Product Offer Price ฝั่ง PO จึงระบุเจ้าของเดียวไม่ได้ ให้ตรวจรายการเชื่อม POP กับ PO',
+ 'OWNER_MISMATCH': 'PO ID ที่ระบุใน Variant ไม่ตรงกับ PO เจ้าของ POP ที่ Variant เชื่อมอยู่ ให้เทียบ PO ID ในรายงานกับ PO ของ POP ใน Related Evidence แล้วตรวจรายการเชื่อมทั้งสองฝั่ง',
+ 'VARIANT_PAIR_NOT_ALLOWED': 'Variant ใช้คู่ Characteristics ID + value ที่ไม่พบใน Char_Value ที่มีค่าของ PO เดียวกัน ให้ค้น PO ID + Characteristics ID + value ที่ระบุใน Char_Value โดย Related Evidence ระบุตำแหน่งคู่ในรายการ comma',
+ 'POP_PAIR_NOT_ALLOWED': 'Characteristic ของ POP ใช้คู่ Characteristics ID + value ที่ไม่พบใน Char_Value ที่มีค่าของ PO เจ้าของ ให้เทียบ PO ID + Characteristics ID + value ที่ระบุ ข้อนี้ไม่ใช้ Char Name เป็นเงื่อนไข',
+ 'LENGTH_MISMATCH': 'เมื่อแยกด้วย comma แล้ว จำนวน Characteristics ID ใน specCharacteristics ไม่เท่ากับจำนวนสมาชิกใน value ของ Variant จึงจับคู่ตามลำดับไม่ได้ ให้ตรวจทั้งสองคอลัมน์ โดยรายงานแสดงรายการ ID ใน Related Evidence และรายการค่าใน value',
+ 'EMPTY_MEMBER': 'รายการ specCharacteristics หรือ value ของ Variant มีสมาชิกว่าง เช่น comma ติดกัน หรือ comma ที่ต้นหรือท้ายรายการ จึงจับคู่ ID กับค่าได้ไม่ครบ ให้ตรวจรายการ ID ใน Related Evidence และรายการค่าใน value',
+ 'BOTH_EMPTY': 'Variant นี้ว่างทั้ง specCharacteristics และ value จึงไม่มีคู่ Characteristic ให้ตรวจในระดับ Variant ให้ยืนยันว่าตั้งใจไม่กำหนด Characteristic หรือข้อมูลตกหล่น',
+ 'AMBIGUOUS_QUOTES': 'พบสมาชิกที่ใส่เครื่องหมายคำพูดครอบข้อความซึ่งมี comma อยู่ภายใน จึงยังระบุไม่ได้ว่า comma นั้นเป็นส่วนของค่าหรือตัวแบ่งสมาชิก ให้ตรวจรายการ ID ใน Related Evidence และรายการค่าใน value แล้วกำหนดรูปแบบการแยกให้ชัดเจน',
+}

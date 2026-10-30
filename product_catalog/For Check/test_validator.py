@@ -92,22 +92,37 @@ class Tests(unittest.TestCase):
   self.assertEqual(self.v._csv(text,'embedded.csv'),1);r=next(r for r in self.v.rows['cv'] if r['cid']=='x');self.assertEqual(r['rn'],2);self.assertEqual(r['val'],'a\nb')
   with self.assertRaises(ValueError):self.v._csv(io.StringIO(','.join(SCHEMAS['cv'][1])+'\na,b\n'),'bad.csv')
  def test_excel_formula_not_executed_in_report(self):
-  self.v.add('9.4','ERROR','TEST','literal',val='=1+1');export_report(self.v,self.root/'r.xlsx','ERROR');w=load_workbook(self.root/'r.xlsx',read_only=True);c=list(w['Rule 9'].rows)[1][14];self.assertEqual(c.value,'=1+1');self.assertEqual(c.data_type,'s');w.close()
+  self.v.add('9.4','ERROR','TEST','literal',val='=1+1');export_report(self.v,self.root/'r.xlsx','ERROR');w=load_workbook(self.root/'r.xlsx',read_only=True);c=list(w['Rule 9 (Errors 1)'].rows)[1][14];self.assertEqual(c.value,'=1+1');self.assertEqual(c.data_type,'s');w.close()
  def test_reports_separate_rules_and_preserve_severity_filter(self):
   for rule,severity in [('2','ERROR'),('9.1','ERROR'),('9.4','ERROR'),('6','REVIEW'),('7','WARNING')]:
    self.v.add(rule,severity,'TEST','fixture')
   for severity,expected in [('ERROR',{'2':['2'],'9':['9.1','9.4']}),('REVIEW',{'6':['6'],'7':['7']})]:
    path=self.root/(severity+'.xlsx');counts=export_report(self.v,path,severity)
    with self.subTest(severity=severity):
-    workbook=load_workbook(path,read_only=True)
+    workbook=load_workbook(path)
     try:
-     self.assertEqual(workbook.sheetnames,['Rule '+str(n) for n in range(1,10)])
+     def sheet_name(number):
+      count=len(expected.get(str(number),[]))
+      return 'Rule '+str(number)+(' PASS' if not count else f' (Errors {count})' if severity=='ERROR' else '')
+     self.assertEqual(workbook.sheetnames,[sheet_name(n) for n in range(1,10)])
      for number in range(1,10):
-      sheet=workbook['Rule '+str(number)]
+      has_issues=str(number) in expected
+      sheet=workbook[sheet_name(number)]
+      self.assertEqual(sheet.sheet_properties.tabColor.rgb,'FFFF0000' if has_issues else 'FF00B050')
       rules=[row[1] for row in list(sheet.values)[1:]]
       self.assertEqual(rules,expected.get(str(number),[]))
       self.assertEqual(counts[sheet.title],len(rules)+1)
     finally:workbook.close()
+ def test_error_sheet_count_includes_continuation_rows_without_header(self):
+  self.v.add('7','ERROR','TEST','long evidence',related='x'*60001)
+  path=self.root/'continued.xlsx';counts=export_report(self.v,path,'ERROR')
+  workbook=load_workbook(path)
+  try:
+   sheet=workbook['Rule 7 (Errors 3)']
+   self.assertEqual(sheet.max_row,4)
+   self.assertEqual(counts[sheet.title],4)
+   self.assertEqual(sheet.sheet_properties.tabColor.rgb,'FFFF0000')
+  finally:workbook.close()
  def test_input_issues_have_their_own_report_sheet(self):
   self.v.input_error('po','missing column',src='fixture.xlsx')
   path=self.root/'input.xlsx';export_report(self.v,path,'REVIEW')

@@ -114,7 +114,7 @@ class ExportSourceTests(unittest.TestCase):
             with self.assertRaises(NotADirectoryError):
                 resolve_export_input('missing-round')
 
-    def test_reports_group_by_source_round_and_keep_repeated_runs(self):
+    def test_reports_written_directly_in_source_folder_and_keep_repeated_excel_reports(self):
         round_dir = self.root.parent / '30102026201519'
         round_dir.mkdir()
         self.root.rename(round_dir / 'xlsx')
@@ -125,6 +125,9 @@ class ExportSourceTests(unittest.TestCase):
              patch('logging.basicConfig'), redirect_stdout(io.StringIO()):
             for _ in range(2):
                 main(['--input-dir', str(round_dir), '--out', str(output_dir)])
-        reports = list((output_dir / 'check_30102026201519').glob('run_*/summary.txt'))
-        self.assertEqual(len(reports), 2)
+        report_dir = output_dir / 'check_30102026201519'
+        self.assertTrue((report_dir / 'summary.txt').is_file())
+        self.assertTrue((report_dir / 'summary.json').is_file())
+        self.assertEqual(len(list(report_dir.glob('Result_check_PO_POP_01-09_ErrorOnly_*.xlsx'))), 2)
+        self.assertFalse(list(report_dir.glob('run_*')))
         self.assertFalse(list(output_dir.glob('run_*')))

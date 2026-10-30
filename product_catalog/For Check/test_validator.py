@@ -49,7 +49,7 @@ class Tests(unittest.TestCase):
   self.ins('cv',('po1','color','color','BLUE'));self.ins('cv',('po1','color','color','BLUE'))
   self.run_checks();r=self.cases('UNUSED_CHARACTERISTIC');self.assertEqual(len(r),1);self.assertEqual(r[0]['severity'],'ERROR');self.assertEqual(r[0]['occurrences'],2)
   export_report(self.v,self.root/'errors.xlsx','ERROR');w=load_workbook(self.root/'errors.xlsx',read_only=True)
-  self.assertEqual(len(list(w['Source Occurrences'].values)),3);w.close()
+  self.assertEqual(len(list(w['Rule 9 Sources'].values)),3);w.close()
  def test_different_sku_does_not_exempt_unused(self):
   self.ins('v',('po1','v2','color','BLACK','002'));self.ins('l',('v2','p1'));self.ins('t',('p1','002'));self.ins('cv',('po1','color','color','BLUE'))
   self.run_checks();self.assertFalse(self.cases('SAME_OR_EMPTY_SKU'));self.assertEqual(len(self.cases('UNUSED_CHARACTERISTIC')),1)
@@ -92,7 +92,30 @@ class Tests(unittest.TestCase):
   self.assertEqual(self.v._csv(text,'embedded.csv'),1);r=next(r for r in self.v.rows['cv'] if r['cid']=='x');self.assertEqual(r['rn'],2);self.assertEqual(r['val'],'a\nb')
   with self.assertRaises(ValueError):self.v._csv(io.StringIO(','.join(SCHEMAS['cv'][1])+'\na,b\n'),'bad.csv')
  def test_excel_formula_not_executed_in_report(self):
-  self.v.add('9.4','ERROR','TEST','literal',val='=1+1');export_report(self.v,self.root/'r.xlsx','ERROR');w=load_workbook(self.root/'r.xlsx',read_only=True);c=list(w.active.rows)[1][14];self.assertEqual(c.value,'=1+1');self.assertEqual(c.data_type,'s');w.close()
+  self.v.add('9.4','ERROR','TEST','literal',val='=1+1');export_report(self.v,self.root/'r.xlsx','ERROR');w=load_workbook(self.root/'r.xlsx',read_only=True);c=list(w['Rule 9'].rows)[1][14];self.assertEqual(c.value,'=1+1');self.assertEqual(c.data_type,'s');w.close()
+ def test_reports_separate_rules_and_preserve_severity_filter(self):
+  for rule,severity in [('2','ERROR'),('9.1','ERROR'),('9.4','ERROR'),('6','REVIEW'),('7','WARNING')]:
+   self.v.add(rule,severity,'TEST','fixture')
+  for severity,expected in [('ERROR',{'2':['2'],'9':['9.1','9.4']}),('REVIEW',{'6':['6'],'7':['7']})]:
+   path=self.root/(severity+'.xlsx');counts=export_report(self.v,path,severity)
+   with self.subTest(severity=severity):
+    workbook=load_workbook(path,read_only=True)
+    try:
+     self.assertEqual(workbook.sheetnames,['Rule '+str(n) for n in range(1,10)])
+     for number in range(1,10):
+      sheet=workbook['Rule '+str(number)]
+      rules=[row[1] for row in list(sheet.values)[1:]]
+      self.assertEqual(rules,expected.get(str(number),[]))
+      self.assertEqual(counts[sheet.title],len(rules)+1)
+    finally:workbook.close()
+ def test_input_issues_have_their_own_report_sheet(self):
+  self.v.input_error('po','missing column',src='fixture.xlsx')
+  path=self.root/'input.xlsx';export_report(self.v,path,'REVIEW')
+  workbook=load_workbook(path,read_only=True)
+  try:
+   self.assertEqual(list(workbook['Input Issues'].values)[1][1],'INPUT')
+   self.assertEqual(len(workbook.sheetnames),10)
+  finally:workbook.close()
  def test_xlsx_hidden_rows_and_split_sheets(self):
   w=Workbook();s=w.active;s.title='ProductOffer';s.append(['Product Id']);s.append(['p1']);s.row_dimensions[2].hidden=True
   s=w.create_sheet('ProductOffer (2)');s.append(['Product Id']);s.append(['p2']);p=self.root/'p.xlsx';w.save(p)

@@ -217,8 +217,10 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 export/
+results/
 
 # Claude
 .claude/
 .codex-runtime-deps/
+.github
 product_catalog/For Check/results/

@@ -179,20 +179,25 @@ def export_report(v, path, severity, verify=True):
   if (rowcounts[s.title]-1)%10000==0:
    LOG.info('Report %s: %s written %s rows',path.name,s.title,rowcounts[s.title]-1)
   expected_hash.update(json.dumps([s.title,values],ensure_ascii=False,separators=(',',':')).encode())
- base='Error Detail' if severity=='ERROR' else 'Review Detail'
- ws=new_sheet(base,REPORT_HEADERS+['Detail Part']);sheetno=1;sheetrows=1
  selected = sorted((i for i in v.issues if (i['severity']=='ERROR') == (severity=='ERROR')), key=lambda i: (float(i['rule']) if i['rule']!='INPUT' else 0, i['id']))
  LOG.info('Report %s: writing %s cases',path.name,len(selected))
+ buckets={str(number):[] for number in range(1,10)}
+ if any(r['rule']=='INPUT' for r in selected):buckets={'INPUT':[],**buckets}
  for r in selected:
-  row=[r[f] for f in REPORT_FIELDS]
-  # Oversized evidence is continued, never silently truncated or discarded.
-  parts=max([1]+[(len(x)+29999)//30000 for x in row if isinstance(x,str)])
-  for part in range(parts):
-   if sheetrows>=1000000:
-    ws.auto_filter.ref=f'A1:S{sheetrows}';sheetno+=1;ws=new_sheet(base+' '+str(sheetno),REPORT_HEADERS+['Detail Part']);sheetrows=1
-   vals=[x[part*30000:(part+1)*30000] if isinstance(x,str) and len(x)>30000 else x for x in row]
-   append(ws,vals+[f'{part+1}/{parts}']);sheetrows+=1
- ws.auto_filter.ref=f'A1:S{sheetrows}'
+  buckets[r['rule'].split('.')[0]].append(r)
+ for rule,issues in buckets.items():
+  base='Input Issues' if rule=='INPUT' else 'Rule '+rule
+  ws=new_sheet(base,REPORT_HEADERS+['Detail Part']);sheetno=1;sheetrows=1
+  for r in issues:
+   row=[r[f] for f in REPORT_FIELDS]
+   # Oversized evidence is continued, never silently truncated or discarded.
+   parts=max([1]+[(len(x)+29999)//30000 for x in row if isinstance(x,str)])
+   for part in range(parts):
+    if sheetrows>=1000000:
+     ws.auto_filter.ref=f'A1:S{sheetrows}';sheetno+=1;ws=new_sheet(base+' '+str(sheetno),REPORT_HEADERS+['Detail Part']);sheetrows=1
+    vals=[x[part*30000:(part+1)*30000] if isinstance(x,str) and len(x)>30000 else x for x in row]
+    append(ws,vals+[f'{part+1}/{parts}']);sheetrows+=1
+  ws.auto_filter.ref=f'A1:S{sheetrows}'
  # Every repeated Char_Value row behind a 9.4 case is available, not a sample.
  if 'cv' in v.ready:
   ev=None;en=0;er=0;eh=['Case ID','Source File','Source Sheet','Source Record','PO ID','Characteristics ID','Char Name','value']
@@ -204,7 +209,7 @@ def export_report(v, path, severity, verify=True):
    if issue['rule'] != '9.4':continue
    for cv in occurrences[issue['po'],issue['cid'],issue['val']]:
     if ev is None or er>=1000000:
-     en+=1;ev=new_sheet('Source Occurrences'+(' '+str(en) if en>1 else ''),eh);er=1
+     en+=1;ev=new_sheet('Rule 9 Sources'+(' '+str(en) if en>1 else ''),eh);er=1
     append(ev,[issue['id'], *[cv[f] for f in ('src','sheet','rn','po','cid','name','val')]]);er+=1
  LOG.info('Report %s: saving XLSX (%s rows including headers)',path.name,sum(rowcounts.values()))
  wb.save(path)
@@ -292,12 +297,13 @@ def main(argv=None):
  now=datetime.now(timezone(timedelta(hours=7)));stamp=now.strftime('%d%m%Y%H%M%S')
  if args.input_dir:
   source_dir=args.input_dir.parent if args.input_dir.name.lower()=='xlsx' else args.input_dir
-  out=args.out/('check_'+source_dir.name)/('run_'+stamp+'_'+now.strftime('%f'))
+  out=args.out/('check_'+source_dir.name)
+  stamp+='_'+now.strftime('%f')
  else:
   out=args.out/('run_'+stamp)
- # Avoid collision or accidental overwrite when running twice within a second.
- out.mkdir(parents=True,exist_ok=False)
- logging.basicConfig(level=logging.INFO,format='%(asctime)s %(message)s',handlers=[logging.StreamHandler(),logging.FileHandler(out/'run.log',encoding='utf-8')])
+ # Export reports share the source folder; timestamped Excel files keep each run.
+ out.mkdir(parents=True,exist_ok=bool(args.input_dir))
+ logging.basicConfig(level=logging.INFO,format='%(asctime)s %(message)s',handlers=[logging.StreamHandler(),logging.FileHandler(out/'run.log',mode='w',encoding='utf-8')])
  try:
   conf=config_read(args.config)
   paths=list(sources.values())+cv_paths if sources else ([] if args.database else [args.po,args.pop,args.meta]+(args.char_value or []))

@@ -1,7 +1,7 @@
 """Exact PO/POP rules over source rows, with no local database."""
 from collections import Counter, defaultdict
 
-from validation_domain import SCHEMAS, UNIT, MODEL, MAIN, TYPE, VERSION, parse_pairs
+from validation_domain import SCHEMAS, UNIT, MODEL, MAIN, TYPE, VERSION, CV_DUPLICATE_KEY, parse_pairs
 
 
 def group(rows, *fields):
@@ -84,7 +84,7 @@ class RuleValidator:
 
     def run(self):
         self.indexes()
-        for number in range(1, 10):
+        for number in range(1, 11):
             getattr(self, f'rule{number}')()
 
     def rule1(self):
@@ -339,9 +339,24 @@ class RuleValidator:
                 self.finding('9.6', 'MULTI_POP_VALUES', pid=pid, cid=cid, severity='REVIEW',
                              related=f'ค่าที่แตกต่างกัน: {n}')
 
+    def rule10(self):
+        self.duplicate_cv_rows = []
+        if not self.has(10, 'cv'):
+            return
+        active = [row for row in self.rows['cv'] if row['po'] not in self.ex_po]
+        for rows in group(active, *CV_DUPLICATE_KEY).values():
+            if len(rows) > 1:
+                self.duplicate_cv_rows.extend(rows)
+                for row in rows:
+                    self.finding(10, 'DUPLICATE_CV', row,
+                                 related=f"valueType={row['value_type']}; จำนวนแถวในกลุ่ม: {len(rows)}")
+        self.duplicate_cv_rows.sort(key=lambda row: tuple(row[f] for f in CV_DUPLICATE_KEY) + (row['id'],))
+        self.coverage['10_checked_rows'] = len(active)
+        self.coverage['10_duplicate_rows'] = len(self.duplicate_cv_rows)
+
     def summary(self):
         rules = []
-        for number in range(1, 10):
+        for number in range(1, 11):
             counts = Counter(i['severity'] for i in self.issues if i['rule'].split('.')[0] == str(number))
             errors, review = counts['ERROR'], counts['REVIEW']
             rules.append(dict(rule=number, status='FAIL' if errors else 'INCOMPLETE' if review else 'PASS',
@@ -358,6 +373,7 @@ class RuleValidator:
 
 
 REASONS = {
+ 'DUPLICATE_CV': 'พบแถวซ้ำภายใน Product Offer ID เดียวกัน โดย Characteristics ID + Characteristics Name + valueType + value ตรงกันครบ ให้ตรวจทุกแถวในชีต Char duplicate detail',
  'MISSING_META': 'พบ POP ID นี้ในรายการหลัก Product Offer Price แต่ไม่พบ POP ID เดียวกันใน POP_metaExt_productInfo ให้ตรวจว่าข้อมูล Meta ของ POP นี้ตกหล่นหรือระบุ ID ต่างกัน',
  'SKU_NOT_FOUND': 'พบ Variant นี้ใน Product Variants แต่ไม่พบ matCode ที่ตรงกับ SKU ของ Variant ใน POP_metaExt_productInfo ให้ค้น SKU จากคอลัมน์ SKU / matCode ในข้อมูล Meta',
  'VARIANT_LINK_MISSING': 'พบ Variant และพบ SKU ใน POP_metaExt_productInfo แล้ว แต่ไม่พบ Variant ID เดียวกันใน Variant_ProductOffering_Price จึงหา POP ที่เชื่อมกับ Variant ไม่ได้ ให้ตรวจรายการเชื่อมและการสะกด Variant ID',

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PO/POP rules 1–9. Python 3.10+. Export or SQL Server input, exact comparisons, full scans.
+"""PO/POP rules 1–10. Python 3.10+. Export or SQL Server input, exact comparisons, full scans.
 
 Defaults to the latest project export. --database reads SQL Server using
 product_catalog/.env. Validation runs in Python memory.
@@ -27,6 +27,7 @@ from openpyxl.utils import get_column_letter
 
 from validation_domain import VERSION, UNIT, MODEL, MAIN, TYPE, BLANK, SCHEMAS, parse_pairs
 from validation_rules import RuleValidator
+from validation_domain import CV_DETAIL_FIELDS, CV_DETAIL_HEADERS
 
 LOG = logging.getLogger("po_pop")
 
@@ -183,7 +184,7 @@ def export_report(v, path, severity, verify=True):
   expected_hash.update(json.dumps([s.title,values],ensure_ascii=False,separators=(',',':')).encode())
  selected = sorted((i for i in v.issues if (i['severity']=='ERROR') == (severity=='ERROR')), key=lambda i: (float(i['rule']) if i['rule']!='INPUT' else 0, i['id']))
  LOG.info('Report %s: writing %s cases',path.name,len(selected))
- buckets={str(number):[] for number in range(1,10)}
+ buckets={str(number):[] for number in range(1,11)}
  if any(r['rule']=='INPUT' for r in selected):buckets={'INPUT':[],**buckets}
  for r in selected:
   buckets[r['rule'].split('.')[0]].append(r)
@@ -209,6 +210,22 @@ def export_report(v, path, severity, verify=True):
     vals=[x[part*30000:(part+1)*30000] if isinstance(x,str) and len(x)>30000 else x for x in row]
     append(ws,vals+[f'{part+1}/{parts}']);sheetrows+=1
   ws.auto_filter.ref=f'A1:S{sheetrows}'
+ if severity == 'ERROR':
+  duplicates = getattr(v, 'duplicate_cv_rows', [])
+  all_sheet = new_sheet('All', [CV_DETAIL_HEADERS[0]])
+  for po in sorted({row['po'] for row in duplicates}):
+   if rowcounts[all_sheet.title] >= 1000000:
+    all_sheet = new_sheet('All '+str(1+sum(name == 'All' or name.startswith('All ') for name in rowcounts)), [CV_DETAIL_HEADERS[0]])
+   append(all_sheet, [po])
+  detail = new_sheet('Char duplicate detail', CV_DETAIL_HEADERS)
+  part = 1
+  for row in duplicates:
+   if rowcounts[detail.title] >= 1000000:
+    detail.auto_filter.ref=f'A1:H{rowcounts[detail.title]}'
+    part += 1
+    detail = new_sheet('Char duplicate detail '+str(part), CV_DETAIL_HEADERS)
+   append(detail, [row[field] for field in CV_DETAIL_FIELDS])
+  detail.auto_filter.ref=f'A1:H{rowcounts[detail.title]}'
  # Every repeated Char_Value row behind a 9.4 case is available, not a sample.
  if 'cv' in v.ready:
   ev=None;en=0;er=0;eh=['Case ID','Source File','Source Sheet','Source Record','PO ID','Characteristics ID','Char Name','value']
@@ -343,7 +360,7 @@ def main(argv=None):
   # Ensure the sources did not change while being read.
   if any(digest(Path(p))!=sha for p,sha in manifest.items()):raise RuntimeError('Input changed during validation')
   LOG.info('Exporting Error-only Excel report')
-  summary['error_report_rows']=export_report(v,out/f'Result_check_PO_POP_01-09_ErrorOnly_{stamp}.xlsx','ERROR')
+  summary['error_report_rows']=export_report(v,out/f'Result_check_PO_POP_01-10_ErrorOnly_{stamp}.xlsx','ERROR')
   if any(i['severity']!='ERROR' for i in v.issues):
    summary['review_report_rows']=export_report(v,out/f'Result_Review_Warning_{stamp}.xlsx','REVIEW')
   # Independent report serialization audit is mandatory (all cells, all sheets).

@@ -24,6 +24,7 @@ class Tests(unittest.TestCase):
  def tearDown(self):self.tmp.cleanup()
 
  def ins(self,t,values):
+  if t == 'cv':values = (*values, '', '', 'string', '')
   rn=len(self.v.rows[t])+2
   self.v._insert(t,[('fixture.xlsx',SCHEMAS[t][0],rn,*values)])
 
@@ -88,7 +89,7 @@ class Tests(unittest.TestCase):
  def test_case_and_whitespace_are_not_normalized(self):
   self.update('v', 'vid', 'v1', vals='black ');self.run_checks();self.assertEqual(len(self.cases('VARIANT_PAIR_NOT_ALLOWED')),1)
  def test_csv_newline_width_and_records(self):
-  text=io.StringIO(newline='');w=csv.writer(text);w.writerow(SCHEMAS['cv'][1]);w.writerow(['po1','x','name','a\nb']);text.seek(0)
+  text=io.StringIO(newline='');w=csv.writer(text);w.writerow(SCHEMAS['cv'][1]);w.writerow(['po1','x','name','a\nb','','','string','']);text.seek(0)
   self.assertEqual(self.v._csv(text,'embedded.csv'),1);r=next(r for r in self.v.rows['cv'] if r['cid']=='x');self.assertEqual(r['rn'],2);self.assertEqual(r['val'],'a\nb')
   with self.assertRaises(ValueError):self.v._csv(io.StringIO(','.join(SCHEMAS['cv'][1])+'\na,b\n'),'bad.csv')
  def test_excel_formula_not_executed_in_report(self):
@@ -104,8 +105,8 @@ class Tests(unittest.TestCase):
      def sheet_name(number):
       count=len(expected.get(str(number),[]))
       return 'Rule '+str(number)+(' PASS' if not count else f' (Errors {count})' if severity=='ERROR' else '')
-     self.assertEqual(workbook.sheetnames,[sheet_name(n) for n in range(1,10)])
-     for number in range(1,10):
+     self.assertEqual(workbook.sheetnames,[sheet_name(n) for n in range(1,11)]+(['All','Char duplicate detail'] if severity=='ERROR' else []))
+     for number in range(1,11):
       has_issues=str(number) in expected
       sheet=workbook[sheet_name(number)]
       self.assertEqual(sheet.sheet_properties.tabColor.rgb,'FFFF0000' if has_issues else 'FF00B050')
@@ -129,7 +130,7 @@ class Tests(unittest.TestCase):
   workbook=load_workbook(path,read_only=True)
   try:
    self.assertEqual(list(workbook['Input Issues'].values)[1][1],'INPUT')
-   self.assertEqual(len(workbook.sheetnames),10)
+   self.assertEqual(len(workbook.sheetnames),11)
   finally:workbook.close()
  def test_xlsx_hidden_rows_and_split_sheets(self):
   w=Workbook();s=w.active;s.title='ProductOffer';s.append(['Product Id']);s.append(['p1']);s.row_dimensions[2].hidden=True

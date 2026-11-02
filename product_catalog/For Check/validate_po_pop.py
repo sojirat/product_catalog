@@ -144,14 +144,18 @@ class Validator(RuleValidator):
 
 REPORT_FIELDS=['id','rule','severity','code','reason','src','sheet','rn','po','pid','vid','sku','cid','name','val','expected','related','occurrences']
 REPORT_HEADERS=['Case ID','Rule No','Severity','Error Code','Reason','Source File','Source Sheet','Source Row / Record','PO ID','POP ID','Variant ID','SKU / matCode','Characteristics ID','Char Name','value','Expected Condition','Related Evidence','Source Occurrence Count']
+DEFAULT_REPORT_ROWS_PER_SHEET = 1000000
+EXCEL_MAX_DATA_ROWS = 1048575  # Excel's row limit minus the repeated header.
 
 
-def export_report(v, path, severity, verify=True):
+def export_report(v, path, severity, verify=True, rows_per_sheet=DEFAULT_REPORT_ROWS_PER_SHEET):
  """Write-only export supports Excel 2016; no formulas, no silent truncation.
 
  The user's request explicitly requires Python, hence openpyxl for portable
  standalone reporting. Split sheets before Excel's 1,048,576-row limit.
  """
+ if isinstance(rows_per_sheet, bool) or not isinstance(rows_per_sheet, int) or not 1 <= rows_per_sheet <= EXCEL_MAX_DATA_ROWS:
+  raise ValueError(f'rows_per_sheet must be between 1 and {EXCEL_MAX_DATA_ROWS}')
  wb=Workbook(write_only=True)
  expected_hash=hashlib.sha256(); rowcounts={}
  body_alignment=Alignment(vertical='top',wrap_text=True)
@@ -171,6 +175,8 @@ def export_report(v, path, severity, verify=True):
   expected_hash.update(json.dumps([name,header],ensure_ascii=False,separators=(',',':')).encode())
   return s
  def append(s,row):
+  if rowcounts[s.title] >= rows_per_sheet + 1:
+   raise AssertionError('Report sheet capacity exceeded: '+s.title)
   cells=[];values=[]
   for value in row:
    value='' if value is None else value
@@ -182,6 +188,19 @@ def export_report(v, path, severity, verify=True):
   if (rowcounts[s.title]-1)%10000==0:
    LOG.info('Report %s: %s written %s rows',path.name,s.title,rowcounts[s.title]-1)
   expected_hash.update(json.dumps([s.title,values],ensure_ascii=False,separators=(',',':')).encode())
+ def write_split(base, header, rows, always=False):
+  sheet=None;part=0
+  for row in rows:
+   if sheet is None or rowcounts[sheet.title] >= rows_per_sheet + 1:
+    if sheet is not None:
+     sheet.auto_filter.ref=f'A1:{get_column_letter(len(header))}{rowcounts[sheet.title]}'
+    part+=1
+    sheet=new_sheet(base+(' '+str(part) if part>1 else ''),header)
+   append(sheet,row)
+  if sheet is None and always:
+   sheet=new_sheet(base,header)
+  if sheet is not None:
+   sheet.auto_filter.ref=f'A1:{get_column_letter(len(header))}{rowcounts[sheet.title]}'
  selected = sorted((i for i in v.issues if (i['severity']=='ERROR') == (severity=='ERROR')), key=lambda i: (float(i['rule']) if i['rule']!='INPUT' else 0, i['id']))
  LOG.info('Report %s: writing %s cases',path.name,len(selected))
  buckets={str(number):[] for number in range(1,11)}
@@ -196,7 +215,7 @@ def export_report(v, path, severity, verify=True):
   def detail_sheet(number):
    name=base+(' '+str(number) if number>1 else '')
    if issues and severity=='ERROR':
-    count=min(999999,total_rows-(number-1)*999999)
+    count=min(rows_per_sheet,total_rows-(number-1)*rows_per_sheet)
     name+=f' (Errors {count})'
    return new_sheet(name,REPORT_HEADERS+['Detail Part'],has_issues=bool(issues))
   ws=detail_sheet(1);sheetno=1;sheetrows=1
@@ -205,40 +224,30 @@ def export_report(v, path, severity, verify=True):
    # Oversized evidence is continued, never silently truncated or discarded.
    parts=detail_parts(r)
    for part in range(parts):
-    if sheetrows>=1000000:
+    if sheetrows>=rows_per_sheet+1:
      ws.auto_filter.ref=f'A1:S{sheetrows}';sheetno+=1;ws=detail_sheet(sheetno);sheetrows=1
     vals=[x[part*30000:(part+1)*30000] if isinstance(x,str) and len(x)>30000 else x for x in row]
     append(ws,vals+[f'{part+1}/{parts}']);sheetrows+=1
   ws.auto_filter.ref=f'A1:S{sheetrows}'
  if severity == 'ERROR':
   duplicates = getattr(v, 'duplicate_cv_rows', [])
-  all_sheet = new_sheet('All', [CV_DETAIL_HEADERS[0]])
-  for po in sorted({row['po'] for row in duplicates}):
-   if rowcounts[all_sheet.title] >= 1000000:
-    all_sheet = new_sheet('All '+str(1+sum(name == 'All' or name.startswith('All ') for name in rowcounts)), [CV_DETAIL_HEADERS[0]])
-   append(all_sheet, [po])
-  detail = new_sheet('Char duplicate detail', CV_DETAIL_HEADERS)
-  part = 1
-  for row in duplicates:
-   if rowcounts[detail.title] >= 1000000:
-    detail.auto_filter.ref=f'A1:H{rowcounts[detail.title]}'
-    part += 1
-    detail = new_sheet('Char duplicate detail '+str(part), CV_DETAIL_HEADERS)
-   append(detail, [row[field] for field in CV_DETAIL_FIELDS])
-  detail.auto_filter.ref=f'A1:H{rowcounts[detail.title]}'
+  write_split('All', [CV_DETAIL_HEADERS[0]],
+              ([po] for po in sorted({row['po'] for row in duplicates})), always=True)
+  write_split('Char duplicate detail', CV_DETAIL_HEADERS,
+              ([row[field] for field in CV_DETAIL_FIELDS] for row in duplicates), always=True)
  # Every repeated Char_Value row behind a 9.4 case is available, not a sample.
  if 'cv' in v.ready:
-  ev=None;en=0;er=0;eh=['Case ID','Source File','Source Sheet','Source Record','PO ID','Characteristics ID','Char Name','value']
+  eh=['Case ID','Source File','Source Sheet','Source Record','PO ID','Characteristics ID','Char Name','value']
   from validation_rules import group
   LOG.info('Report %s: indexing %s Char_Value records for source evidence',path.name,len(v.rows['cv']))
   occurrences = group(v.rows['cv'], 'po', 'cid', 'val')
   LOG.info('Report %s: writing source evidence',path.name)
-  for issue in sorted(selected, key=lambda i: i['id']):
-   if issue['rule'] != '9.4':continue
-   for cv in occurrences[issue['po'],issue['cid'],issue['val']]:
-    if ev is None or er>=1000000:
-     en+=1;ev=new_sheet('Rule 9 Sources'+(' '+str(en) if en>1 else ''),eh);er=1
-    append(ev,[issue['id'], *[cv[f] for f in ('src','sheet','rn','po','cid','name','val')]]);er+=1
+  def evidence_rows():
+   for issue in sorted(selected, key=lambda i: i['id']):
+    if issue['rule'] != '9.4':continue
+    for cv in occurrences[issue['po'],issue['cid'],issue['val']]:
+     yield [issue['id'], *[cv[f] for f in ('src','sheet','rn','po','cid','name','val')]]
+  write_split('Rule 9 Sources',eh,evidence_rows())
  LOG.info('Report %s: saving XLSX (%s rows including headers)',path.name,sum(rowcounts.values()))
  wb.save(path)
  LOG.info('Report %s: saved (%s bytes)',path.name,path.stat().st_size)
@@ -284,7 +293,11 @@ def main(argv=None):
  ap.add_argument('--char-value',type=Path,nargs='+',help='CSV/ZIP หนึ่งหรือหลายไฟล์; ไม่ระบุจะใช้ Sheet Char_Value ใน PO')
  ap.add_argument('--config',type=Path,default=Path(__file__).with_name('config.json'))
  ap.add_argument('--out',type=Path,default=Path(__file__).resolve().parents[2]/'results')
+ ap.add_argument('--report-rows-per-sheet',type=int,default=DEFAULT_REPORT_ROWS_PER_SHEET,
+                 help='Maximum data rows per report sheet, excluding header (default: %(default)s)')
  args=ap.parse_args(argv)
+ if not 1 <= args.report_rows_per_sheet <= EXCEL_MAX_DATA_ROWS:
+  ap.error(f'--report-rows-per-sheet must be between 1 and {EXCEL_MAX_DATA_ROWS}')
  sources=None;cv_paths=None
  if args.folder:
   if any((args.input_dir,args.latest_export,args.database,args.po,args.pop,args.meta,args.check_connection)):
@@ -360,9 +373,10 @@ def main(argv=None):
   # Ensure the sources did not change while being read.
   if any(digest(Path(p))!=sha for p,sha in manifest.items()):raise RuntimeError('Input changed during validation')
   LOG.info('Exporting Error-only Excel report')
-  summary['error_report_rows']=export_report(v,out/f'Result_check_PO_POP_01-10_ErrorOnly_{stamp}.xlsx','ERROR')
+  summary['report_rows_per_sheet']=args.report_rows_per_sheet
+  summary['error_report_rows']=export_report(v,out/f'Result_check_PO_POP_01-10_ErrorOnly_{stamp}.xlsx','ERROR',rows_per_sheet=args.report_rows_per_sheet)
   if any(i['severity']!='ERROR' for i in v.issues):
-   summary['review_report_rows']=export_report(v,out/f'Result_Review_Warning_{stamp}.xlsx','REVIEW')
+   summary['review_report_rows']=export_report(v,out/f'Result_Review_Warning_{stamp}.xlsx','REVIEW',rows_per_sheet=args.report_rows_per_sheet)
   # Independent report serialization audit is mandatory (all cells, all sheets).
   summary['report_verification']='All written cells reopened and matched; no sampling'
   (out/'summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2),encoding='utf-8')

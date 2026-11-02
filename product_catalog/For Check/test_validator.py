@@ -104,9 +104,9 @@ class Tests(unittest.TestCase):
     try:
      def sheet_name(number):
       count=len(expected.get(str(number),[]))
-      return 'Rule '+str(number)+(' PASS' if not count else f' (Errors {count})' if severity=='ERROR' else '')
-     self.assertEqual(workbook.sheetnames,[sheet_name(n) for n in range(1,11)]+(['All','Char duplicate detail'] if severity=='ERROR' else []))
-     for number in range(1,11):
+      return 'Rule '+str(number)+(f' (Errors {count})' if severity=='ERROR' else '')
+     self.assertEqual(workbook.sheetnames,[sheet_name(int(n)) for n in expected])
+     for number in map(int,expected):
       has_issues=str(number) in expected
       sheet=workbook[sheet_name(number)]
       self.assertEqual(sheet.sheet_properties.tabColor.rgb,'FFFF0000' if has_issues else 'FF00B050')
@@ -130,7 +130,7 @@ class Tests(unittest.TestCase):
   workbook=load_workbook(path,read_only=True)
   try:
    self.assertEqual(list(workbook['Input Issues'].values)[1][1],'INPUT')
-   self.assertEqual(len(workbook.sheetnames),11)
+   self.assertEqual(workbook.sheetnames,['Input Issues'])
   finally:workbook.close()
  def test_xlsx_hidden_rows_and_split_sheets(self):
   w=Workbook();s=w.active;s.title='ProductOffer';s.append(['Product Id']);s.append(['p1']);s.row_dimensions[2].hidden=True

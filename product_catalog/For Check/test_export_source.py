@@ -128,6 +128,7 @@ class ExportSourceTests(unittest.TestCase):
         report_dir = output_dir / 'check_30102026201519'
         self.assertTrue((report_dir / 'summary.txt').is_file())
         self.assertTrue((report_dir / 'summary.json').is_file())
-        self.assertEqual(len(list(report_dir.glob('Result_check_PO_POP_01-10_ErrorOnly_*.xlsx'))), 2)
+        self.assertFalse(list(report_dir.glob('Result_check_PO_POP_01-10_ErrorOnly_*.xlsx')))
+        self.assertEqual(len(list(report_dir.glob('Result_Review_Warning_*.xlsx'))), 2)
         self.assertFalse(list(report_dir.glob('run_*')))
         self.assertFalse(list(output_dir.glob('run_*')))

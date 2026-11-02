@@ -156,14 +156,17 @@ def export_report(v, path, severity, verify=True, rows_per_sheet=DEFAULT_REPORT_
  """
  if isinstance(rows_per_sheet, bool) or not isinstance(rows_per_sheet, int) or not 1 <= rows_per_sheet <= EXCEL_MAX_DATA_ROWS:
   raise ValueError(f'rows_per_sheet must be between 1 and {EXCEL_MAX_DATA_ROWS}')
+ selected = sorted((i for i in v.issues if (i['severity']=='ERROR') == (severity=='ERROR')), key=lambda i: (float(i['rule']) if i['rule']!='INPUT' else 0, i['id']))
+ if not selected:
+  LOG.info('Report %s: skipped because there are no matching issues',path.name)
+  return {}
  wb=Workbook(write_only=True)
  expected_hash=hashlib.sha256(); rowcounts={}
  body_alignment=Alignment(vertical='top',wrap_text=True)
  ws=None;sheetno=0;sheetrows=0
- def new_sheet(name,header,has_issues=True):
-  if not has_issues:name+=' PASS'
+ def new_sheet(name,header):
   s=wb.create_sheet(name);s.freeze_panes='A2'
-  s.sheet_properties.tabColor='FFFF0000' if has_issues else 'FF00B050'
+  s.sheet_properties.tabColor='FFFF0000'
   for i in range(1,len(header)+1):s.column_dimensions[get_column_letter(i)].width=22
   for i in (5,6,9,11,16,17):
    if i<=len(header):s.column_dimensions[get_column_letter(i)].width=48
@@ -188,7 +191,7 @@ def export_report(v, path, severity, verify=True, rows_per_sheet=DEFAULT_REPORT_
   if (rowcounts[s.title]-1)%10000==0:
    LOG.info('Report %s: %s written %s rows',path.name,s.title,rowcounts[s.title]-1)
   expected_hash.update(json.dumps([s.title,values],ensure_ascii=False,separators=(',',':')).encode())
- def write_split(base, header, rows, always=False):
+ def write_split(base, header, rows):
   sheet=None;part=0
   for row in rows:
    if sheet is None or rowcounts[sheet.title] >= rows_per_sheet + 1:
@@ -197,17 +200,15 @@ def export_report(v, path, severity, verify=True, rows_per_sheet=DEFAULT_REPORT_
     part+=1
     sheet=new_sheet(base+(' '+str(part) if part>1 else ''),header)
    append(sheet,row)
-  if sheet is None and always:
-   sheet=new_sheet(base,header)
   if sheet is not None:
    sheet.auto_filter.ref=f'A1:{get_column_letter(len(header))}{rowcounts[sheet.title]}'
- selected = sorted((i for i in v.issues if (i['severity']=='ERROR') == (severity=='ERROR')), key=lambda i: (float(i['rule']) if i['rule']!='INPUT' else 0, i['id']))
  LOG.info('Report %s: writing %s cases',path.name,len(selected))
  buckets={str(number):[] for number in range(1,11)}
  if any(r['rule']=='INPUT' for r in selected):buckets={'INPUT':[],**buckets}
  for r in selected:
   buckets[r['rule'].split('.')[0]].append(r)
  for rule,issues in buckets.items():
+  if not issues:continue
   base='Input Issues' if rule=='INPUT' else 'Rule '+rule
   def detail_parts(issue):
    return max([1]+[(len(issue[f])+29999)//30000 for f in REPORT_FIELDS if isinstance(issue[f],str)])
@@ -217,7 +218,7 @@ def export_report(v, path, severity, verify=True, rows_per_sheet=DEFAULT_REPORT_
    if issues and severity=='ERROR':
     count=min(rows_per_sheet,total_rows-(number-1)*rows_per_sheet)
     name+=f' (Errors {count})'
-   return new_sheet(name,REPORT_HEADERS+['Detail Part'],has_issues=bool(issues))
+   return new_sheet(name,REPORT_HEADERS+['Detail Part'])
   ws=detail_sheet(1);sheetno=1;sheetrows=1
   for r in issues:
    row=[r[f] for f in REPORT_FIELDS]
@@ -232,9 +233,9 @@ def export_report(v, path, severity, verify=True, rows_per_sheet=DEFAULT_REPORT_
  if severity == 'ERROR':
   duplicates = getattr(v, 'duplicate_cv_rows', [])
   write_split('All', [CV_DETAIL_HEADERS[0]],
-              ([po] for po in sorted({row['po'] for row in duplicates})), always=True)
+              ([po] for po in sorted({row['po'] for row in duplicates})))
   write_split('Char duplicate detail', CV_DETAIL_HEADERS,
-              ([row[field] for field in CV_DETAIL_FIELDS] for row in duplicates), always=True)
+              ([row[field] for field in CV_DETAIL_FIELDS] for row in duplicates))
  # Every repeated Char_Value row behind a 9.4 case is available, not a sample.
  if 'cv' in v.ready:
   eh=['Case ID','Source File','Source Sheet','Source Record','PO ID','Characteristics ID','Char Name','value']

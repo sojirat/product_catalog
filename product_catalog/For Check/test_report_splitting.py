@@ -27,7 +27,7 @@ class ReportSplittingTests(unittest.TestCase):
         return sheets
 
     def test_error_boundaries_and_counts(self):
-        for count, expected in [(0, [1]), (2, [3]), (3, [3, 2]), (4, [3, 3]), (5, [3, 3, 2])]:
+        for count, expected in [(2, [3]), (3, [3, 2]), (4, [3, 3]), (5, [3, 3, 2])]:
             with self.subTest(count=count):
                 self.v.issues.clear()
                 for index in range(count):
@@ -38,7 +38,7 @@ class ReportSplittingTests(unittest.TestCase):
                 self.assertEqual([row[0] for rows in parts for row in rows[1:]], list(range(1, count+1)))
                 for number, rows in enumerate(parts, 1):
                     name = 'Rule 10' + (f' {number}' if number > 1 else '')
-                    name += f' (Errors {len(rows)-1})' if count else ' PASS'
+                    name += f' (Errors {len(rows)-1})'
                     self.assertIn(name, sheets)
 
     def test_review_warning_and_input_issues_split_without_losing_rows(self):
@@ -87,6 +87,16 @@ class ReportSplittingTests(unittest.TestCase):
             with self.subTest(capacity=capacity), self.assertRaises(ValueError):
                 export_report(self.v, self.path, 'ERROR', rows_per_sheet=capacity)
         self.assertFalse(self.path.exists())
+
+    def test_no_matching_issues_does_not_create_workbook(self):
+        for severity in ['ERROR', 'REVIEW']:
+            self.assertEqual(export_report(self.v, self.path, severity), {})
+            self.assertFalse(self.path.exists())
+        self.v.add(7, 'WARNING', 'TEST', 'warning')
+        self.assertEqual(export_report(self.v, self.path, 'ERROR'), {})
+        self.assertFalse(self.path.exists())
+        sheets = self.read_report('REVIEW')
+        self.assertEqual(list(sheets), ['Rule 7'])
 
 
 if __name__ == '__main__':

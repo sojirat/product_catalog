@@ -70,11 +70,32 @@ class Rule10Tests(unittest.TestCase):
         self.assertEqual(self.check(), [])
         self.assertEqual(self.v.summary()['rules'][-1]['status'], 'PASS')
 
-    def test_blank_values_are_checked_and_exclusions_apply(self):
-        rows = [self.row(val=''), self.row(val=''), self.row('excluded'), self.row('excluded')]
+    def test_blank_values_are_ignored_and_exclusions_apply(self):
+        rows = [self.row(val=''), self.row(val=''), self.row('excluded'), self.row('excluded'),
+                self.row('nonblank'), self.row('nonblank')]
         self.v.ex_po.add('excluded')
         self.v.read_cv_files([self.csv_file('blank.csv', rows)])
-        self.assertEqual([issue['po'] for issue in self.check()], ['po1', 'po1'])
+        self.assertEqual([issue['po'] for issue in self.check()], ['nonblank', 'nonblank'])
+        self.assertEqual(self.v.coverage['10_checked_rows'], 2)
+        self.assertEqual([row['po'] for row in self.v.duplicate_cv_rows], ['nonblank', 'nonblank'])
+        export_report(self.v, self.root / 'nonblank.xlsx', 'ERROR')
+        workbook = load_workbook(self.root / 'nonblank.xlsx', read_only=True)
+        try:
+            self.assertEqual(list(workbook['All'].values)[1:], [('nonblank',)])
+            self.assertEqual([row[6] for row in list(workbook['Char duplicate detail'].values)[1:]],
+                             ['BLACK', 'BLACK'])
+        finally:
+            workbook.close()
+
+    def test_only_blank_values_pass_rule10(self):
+        self.v.read_cv_files([self.csv_file('empty.csv', [self.row(val=''), self.row(val='')])])
+        self.assertEqual(self.check(), [])
+        self.assertEqual(self.v.summary()['rules'][-1]['status'], 'PASS')
+        self.assertEqual(self.v.coverage['10_checked_rows'], 0)
+
+    def test_whitespace_is_a_value(self):
+        self.v.read_cv_files([self.csv_file('spaces.csv', [self.row(val=' '), self.row(val=' ')])])
+        self.assertEqual(len(self.check()), 2)
 
     def test_duplicate_across_csv_files(self):
         self.v.read_cv_files([self.csv_file('part1.csv', [self.row()]),

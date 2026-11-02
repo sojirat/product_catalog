@@ -343,7 +343,7 @@ class RuleValidator:
         self.duplicate_cv_rows = []
         if not self.has(10, 'cv'):
             return
-        active = [row for row in self.rows['cv'] if row['po'] not in self.ex_po]
+        active = [row for row in self.rows['cv'] if row['po'] not in self.ex_po and row['val'] != '']
         for rows in group(active, *CV_DUPLICATE_KEY).values():
             if len(rows) > 1:
                 self.duplicate_cv_rows.extend(rows)

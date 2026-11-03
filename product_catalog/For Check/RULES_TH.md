@@ -10,8 +10,8 @@
 | 3 | ทุกแถว Meta ย้อน POP → linked Variant ทั้งหมด → SKU | ไม่มี link, มี Variant อ้างอิงที่หาไม่พบ หรือจำนวนแถว Variant ที่ SKU ตรง matCode ไม่เท่ากับหนึ่ง |
 | 4 | `POP ID + Char Name` ใน Characteristics for Price | มากกว่าหนึ่งแถว รายงานทุกแถวในกลุ่ม |
 | 5 | ทุก master POP ต้องมี `unit_name-mh_mg00562` ที่มีค่า | หายหรือ value ว่าง |
-| 6 | model ต่อ POP และการค้นหา Char Name จาก model.value | model มากกว่าหนึ่งแถว หรือพบ Char Name เท่ากับ model.value มากกว่าหนึ่งแถว |
-| 7 | main_model ใน POP ถ้าไม่มีค่าตรวจ PO สำรอง | ไม่มี PO, หลาย PO, ไม่พบ PO ใน Char_Value หรือ PO เป็น DEVICE แต่ไม่มี main_model ที่มีค่า |
+| 6 | model ที่มีค่าใน POP แล้วตรวจ Variant ที่เชื่อมกัน | POP ไม่มีค่า model และทุก Variant ไม่มี model-mh_mg00556 |
+| 7 | main_model ใน POP แล้วตรวจ Variant ก่อนตรวจ Char_Value ของ PO จาก Variant | ไม่พบ link/Variant หรือ Char_Value หรือ PO เป็น DEVICE แต่ยังไม่มี main_model ที่มีค่า |
 | 8 | ทุกคู่ของ POP ต้องตรงกับ Char_Value ทั้ง PO, ID, Name, value ในแถวเดียวกัน | ไม่มี PO, หลาย PO หรือไม่พบแถวที่ตรงครบ |
 | 9.1 | แยกรายการ comma ทั้งสอง Column แล้วจับคู่ตามลำดับ | จำนวนสมาชิกต่างกันหรือมีสมาชิกว่าง |
 | 9.2 | ตรวจการอ้างอิงและความสอดคล้อง PO–Variant–POP | อ้างอิงหายหรือเจ้าของไม่สอดคล้อง |
@@ -31,17 +31,33 @@
 
 ## ข้อ 6
 
-เมื่อพบ model หนึ่งแถวและ value ไม่ว่าง ค้นหา Char Name เท่ากับ value ภายใน POP เดิม
-พบศูนย์หรือหนึ่งแถวผ่าน พบมากกว่าหนึ่งแถวผิด
-ถ้าไม่มี model หรือ value ว่าง ยังไม่มีเกณฑ์ตัดสินชัดเจน จึงเป็น Review และข้อ 6 ไม่แสดง Pass
+1. ตรวจ `model-mh_mg00556` ที่ POP ใน Characteristics for Price ถ้ามี value อย่างน้อยหนึ่งแถวถือว่าผ่าน แม้มีหลายแถว
+2. ถ้าไม่มีแถวที่มีค่า ใช้ `Product Offer Price ID` ค้นหาในไฟล์ Product Offer Price ชีต `Variant_ProductOffering_Price` คอลัมน์ `variantProductOfferingPrice.productOfferingPrice`
+3. นำ `variantProductOfferingPrice.variantId` ทั้งหมดที่ได้ ไปค้นหาในชีต `Product_Variants` คอลัมน์ `Product Variants.variantId` และตรวจทุกแถวที่พบ
+4. แยก `Product Variants.specCharacteristics` ด้วย `,` แล้วค้นหาสมาชิกที่ตรงกับ `model-mh_mg00556` ทั้งตัว ถ้ามีอย่างน้อยหนึ่งแถวถือว่าผ่าน ถ้าทุกแถวไม่มี หรือไม่พบ Variant ที่ใช้ตรวจ ให้แจ้ง Error
+
+ตัวอย่าง `Product Variants.specCharacteristics`:
+
+```text
+color-mh_mg00524,company-mh_mg00551,device_dummy-mh_mg00656,apple_watch_3_series-mh_mg00846,model-mh_mg00556,price_group-mh_mg00557
+```
+
+ตัวอย่างนี้ผ่านข้อ 6 เพราะมี `model-mh_mg00556` หลัง split ด้วย comma
+ยกเลิกการตรวจจำนวนแถว model และการค้นหา Char Name จาก model.value ตามกฎเดิม
 
 ## ข้อ 7
 
-ตรวจ main_model ที่ POP ก่อน ถ้ามีค่าอย่างน้อยหนึ่งแถวถือว่าผ่านข้อนี้
-มิฉะนั้นหา PO เดียวจาก Sheet Product Offer Price ในไฟล์ PO
-หากมี `product_type-mh_mg00162 = DEVICE` ใน Char_Value ของ PO ต้องมี `main_model-mh_mg00554` ที่มีค่าอย่างน้อยหนึ่งแถว
+1. ตรวจ `main_model-mh_mg00554` ที่ POP ใน Characteristics for Price ถ้ามี value อย่างน้อยหนึ่งแถวถือว่าผ่าน
+2. ถ้าไม่มีแถวที่มีค่า ใช้ `Product Offer Price ID` ค้นหาในไฟล์ Product Offer Price ชีต `Variant_ProductOffering_Price` คอลัมน์ `variantProductOfferingPrice.productOfferingPrice`
+3. นำ `variantProductOfferingPrice.variantId` ทั้งหมดที่ได้ ไปค้นหาในชีต `Product_Variants` คอลัมน์ `Product Variants.variantId` และตรวจทุกแถวที่พบ
+4. แยก `Product Variants.specCharacteristics` ด้วย `,` แล้วค้นหาสมาชิกที่ตรงกับ `main_model-mh_mg00554` ทั้งตัว ถ้ามีอย่างน้อยหนึ่งแถวถือว่าผ่าน ตัวอย่างในข้อ 6 ไม่มีสมาชิกนี้ จึงต้องตรวจขั้นตอนถัดไป
+5. ถ้าทุกแถวไม่มี ให้นำ `Product Variants.Product Id` ของทุก PO ที่พบ ไปค้นหาในชีต `Char_Value` คอลัมน์ `Char Value.Product Offer ID`
+6. หาก PO นั้นมี `product_type-mh_mg00162 = DEVICE` ต้องมี `main_model-mh_mg00554` ที่มี value อย่างน้อยหนึ่งแถวใน Char_Value ของ PO เดียวกัน หากยังไม่มี ให้แจ้ง Error ตรวจแต่ละ PO แยกกันเมื่อพบหลาย PO
+
 PO ที่ไม่เป็น DEVICE ไม่บังคับ main_model ด้วย fallback นี้
+หากไม่พบ link, Variant ที่อ้างอิง หรือข้อมูล PO ใน Char_Value ให้แจ้ง Error
 POP ที่ไม่มี Characteristics for Price เลยเป็น Warning และยังตรวจ fallback ต่อ
+การเทียบ ID หลัง split เป็นแบบตรงตัว ไม่ค้นหาเพียงบางส่วนและไม่ตัดช่องว่าง
 
 ## ข้อ 8
 
@@ -84,5 +100,5 @@ Error Report มีชีต `Rule 10` สำหรับรายละเอ�
 
 ทุก Record ถูกอ่าน ไม่มี Sampling ข้อที่มี Review ยังคงแสดง `complete=false`
 รายการ Review ไม่ถูกนับเป็น Error หรือ Pass โดยปริยาย
-หนึ่งต้นเหตุอาจผิดหลายข้อ เช่น POP ไม่มี Characteristic ทำให้ข้อ 5 ผิดและข้อ 6 ยังตัดสินไม่ได้
+หนึ่งต้นเหตุอาจผิดหลายข้อ เช่น POP ไม่มี Characteristic และ Variant ไม่มี model ทำให้ข้อ 5 และข้อ 6 ผิด
 ห้ามรวมจำนวน Error แล้วตีความเป็นจำนวน PO/POP ที่ไม่ซ้ำ

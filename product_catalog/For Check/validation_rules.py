@@ -148,26 +148,15 @@ class RuleValidator:
     def rule6(self):
         if not self.has(6, 'm', 'c'):
             return
-        masters = Counter(r['pid'] for r in self.am)
-        for pid, multiplicity in masters.items():
-            models = self.chars_by_id[pid, MODEL]
-            count = len(models) * multiplicity
-            if count > 1:
-                for row in models:
-                    self.finding(6, 'MODEL_MULTIPLE', row, related=f'จำนวน model: {count}')
-            elif count == 1:
-                model = models[0]
-                if model['val'] == '':
-                    self.finding(6, 'MODEL_EMPTY', model, severity=self.config['blank_model'])
-                else:
-                    names = self.chars_by_name[pid, model['val']]
-                    if len(names) > 1:
-                        for row in names:
-                            self.finding(6, 'MODEL_CHAR_NAME_MULTIPLE', row,
-                                         related=f"model source row: {model['rn']}")
-        for row in self.am:
-            if not self.chars_by_id[row['pid'], MODEL]:
-                self.finding(6, 'MODEL_MISSING', row, cid=MODEL, severity=self.config['missing_model'])
+        need = [r for r in self.am if not any(c['val'] != '' for c in self.chars_by_id[r['pid'], MODEL])]
+        if not need or not self.has(6, 'l', 'v'):
+            return
+        for row in need:
+            variants = [v for link in self.links_by_pid[row['pid']]
+                        for v in self.variants_by_vid[link['vid']] if v['po'] not in self.ex_po]
+            if not any(MODEL in v['cids'].split(',') for v in variants):
+                self.finding(6, 'MODEL_MISSING', row, cid=MODEL,
+                             reason='POP ไม่มี model ที่มีค่า และ Variant ที่เชื่อมกันทุกแถวไม่มี model-mh_mg00556 ใน specCharacteristics')
 
     def rule7(self):
         if not self.has(7, 'm', 'c'):
@@ -177,28 +166,33 @@ class RuleValidator:
         for row in self.am:
             if not self.chars[row['pid']]:
                 self.finding(7, 'NO_POP_CHARACTERISTICS', row, severity='WARNING')
-        if not self.has(7, 'o'):
+        if not need or not self.has(7, 'l', 'v'):
             return
         for row in need:
-            owners = self.owner_po.get(row['pid'], set())
-            if not owners:
-                self.finding(7, 'PO_MAPPING_MISSING', row)
-            elif len(owners) > 1:
-                self.finding(7, 'MULTIPLE_PO', row, related=f'จำนวน PO: {len(owners)}')
-        if not self.has(7, 'cv'):
-            return
-        for row in need:
-            po = self.single_owner(row['pid'])
-            if po is None or po in self.ex_po:
+            links = self.links_by_pid[row['pid']]
+            if not links:
+                self.finding(7, 'POP_LINK_MISSING', row)
                 continue
-            chars = self.cv[po]
-            if not chars:
-                self.finding(7, 'PO_CV_MISSING', row, po=po)
-            device = next((c for c in chars if c['cid'] == TYPE and c['val'] == 'DEVICE'), None)
-            if device and not any(c['cid'] == MAIN and c['val'] != '' for c in chars):
-                self.finding(7, 'DEVICE_MAIN_MISSING', row, po=po, cid=MAIN,
-                             expected='main_model มีค่าใน POP หรือ Char_Value ของ PO',
-                             related=f"DEVICE source: {device['src']} record {device['rn']}")
+            variants = []
+            for vid in sorted({link['vid'] for link in links}):
+                found = self.variants_by_vid[vid]
+                if not found:
+                    self.finding(7, 'VARIANT_MISSING', row, vid=vid)
+                variants.extend(v for v in found if v['po'] not in self.ex_po)
+            if any(MAIN in v['cids'].split(',') for v in variants):
+                continue
+            if not variants or not self.has(7, 'cv'):
+                continue
+            for po in sorted({v['po'] for v in variants}):
+                chars = self.cv[po]
+                if not chars:
+                    self.finding(7, 'PO_CV_MISSING', row, po=po)
+                device = next((c for c in chars if c['cid'] == TYPE and c['val'] == 'DEVICE'), None)
+                if device and not any(c['cid'] == MAIN and c['val'] != '' for c in chars):
+                    self.finding(7, 'DEVICE_MAIN_MISSING', row, po=po, cid=MAIN,
+                                 reason='POP ไม่มี main_model ที่มีค่า และ Variant ทุกแถวไม่มี main_model-mh_mg00554 โดย PO จาก Variant เป็น DEVICE แต่ไม่มี main_model ที่มีค่าใน Char_Value',
+                                 expected='main_model มีค่าใน POP หรือมี ID ใน Variant หรือมีค่าใน Char_Value ของ PO ที่เป็น DEVICE',
+                                 related=f"DEVICE source: {device['src']} record {device['rn']}")
 
     def rule8(self):
         if not self.has(8, 'm', 'o'):

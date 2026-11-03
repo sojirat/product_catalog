@@ -66,16 +66,39 @@ class Tests(unittest.TestCase):
   self.ins('v',('po1','v1','color','BLACK','001'));self.run_checks();self.assertEqual(self.cases('SKU_MATCH_COUNT')[0]['val'],'2')
  def test_unit_blank(self):
   self.update('c', 'cid', UNIT, val='');self.run_checks();self.assertEqual(len(self.cases('UNIT_EMPTY')),1)
- def test_model_missing_is_review(self):
-  self.delete('c', 'cid', MODEL);self.run_checks();self.assertEqual(self.cases('MODEL_MISSING')[0]['severity'],'REVIEW')
+ def test_model_missing_is_error(self):
+  self.delete('c', 'cid', MODEL);self.run_checks();self.assertEqual(self.cases('MODEL_MISSING')[0]['severity'],'ERROR')
  def test_model_duplicates(self):
-  self.ins('c',('p1',MODEL,'model','widget'));self.run_checks();self.assertEqual(len(self.cases('MODEL_MULTIPLE')),2);self.assertEqual(len(self.cases('DUPLICATE_CHAR_NAME')),2)
+  self.ins('c',('p1',MODEL,'model','widget'));self.run_checks();self.assertFalse(self.cases('MODEL_MULTIPLE'));self.assertEqual(len(self.cases('DUPLICATE_CHAR_NAME')),2)
  def test_model_secondary_search(self):
-  self.ins('c',('p1','a','widget','1'));self.ins('c',('p1','b','widget','2'));self.run_checks();self.assertEqual(len(self.cases('MODEL_CHAR_NAME_MULTIPLE')),2)
+  self.ins('c',('p1','a','widget','1'));self.ins('c',('p1','b','widget','2'));self.run_checks();self.assertFalse(self.cases('MODEL_CHAR_NAME_MULTIPLE'))
  def test_rule7_device_fallback(self):
   self.delete('c', 'cid', MAIN);self.ins('cv',('po1',TYPE,'productType','DEVICE'));self.run_checks();self.assertFalse(self.cases('DEVICE_MAIN_MISSING'))
  def test_rule7_device_main_missing(self):
   self.delete('c', 'cid', MAIN);self.update('cv', 'cid', MAIN, val='');self.ins('cv',('po1',TYPE,'productType','DEVICE'));self.run_checks();self.assertEqual(len(self.cases('DEVICE_MAIN_MISSING')),1)
+ def test_model_variant_fallback_exact_member(self):
+  self.delete('c', 'cid', MODEL)
+  self.update('v', 'vid', 'v1', cids='color,'+MODEL, vals='BLACK,widget')
+  self.run_checks();self.assertFalse(self.cases('MODEL_MISSING'))
+ def test_model_variant_substring_fails(self):
+  self.delete('c', 'cid', MODEL)
+  self.update('v', 'vid', 'v1', cids=MODEL+'suffix')
+  self.run_checks();self.assertEqual(len(self.cases('MODEL_MISSING')),1)
+ def test_main_variant_fallback_any_linked_row(self):
+  self.delete('c', 'cid', MAIN);self.delete('cv', 'cid', MAIN)
+  self.ins('cv',('po1',TYPE,'productType','DEVICE'))
+  self.ins('v',('po1','v2','color,'+MAIN,'BLACK,device','002'));self.ins('l',('v2','p1'))
+  self.run_checks();self.assertFalse(self.cases('DEVICE_MAIN_MISSING'))
+ def test_main_uses_variant_po_instead_of_pop_owner(self):
+  self.delete('c', 'cid', MAIN)
+  self.update('v', 'vid', 'v1', po='po2')
+  self.ins('cv',('po2',TYPE,'productType','DEVICE'))
+  self.run_checks();self.assertEqual(self.cases('DEVICE_MAIN_MISSING')[0]['po'],'po2')
+ def test_pop_value_does_not_require_fallback_inputs(self):
+  self.v.ready.difference_update({'l','v','cv','o'})
+  self.v.indexes();self.v.rule6();self.v.rule7()
+  self.assertFalse(self.v.issues)
+
  def test_rule8_same_record_required(self):
   self.update('cv', 'cid', UNIT, name='wrong');self.ins('cv',('po1',UNIT,'unit','other'));self.run_checks();self.assertEqual(len(self.cases('CV_EXACT_MISSING')),1)
  def test_duplicate_levels(self):

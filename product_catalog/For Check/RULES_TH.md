@@ -20,7 +20,7 @@
 | 9.5 | ตรวจ SKU ของกลุ่ม Variant ที่เชื่อม POP เดียวกัน | SKU ต่างกันผ่านด้านแยกแยะ Variant ห้าม Error เพียงเพราะ Characteristic เหมือนกัน |
 | 9.6 | เทียบคู่ข้อมูลทั้งระดับ Variant และ POP ที่เชื่อมกัน | ID + value เดียวกันซ้ำทั้งสองระดับ |
 | 10 | ตรวจแถวซ้ำใน Char_Value ภายใต้ Product Offer ID เดียวกัน | Characteristics ID + Characteristics Name + valueType + value ตรงกันมากกว่าหนึ่งแถว |
-| 11 | price_group ของ Variant ต้องตรงกับ Channel ของ POP | link หรือ Channel ไม่ครบหนึ่งแถว หรือ All ไม่ใช่ EUP หรือ Web Staff ไม่ใช่ STAFF |
+| 11 | price_group ของ Variant ต้องตรงกับ Channel ของ POP | ไม่มี link, กลุ่มหลาย POP มี priceType ผิดรูปแบบ, Channel ไม่ครบหนึ่งแถว หรือ price_group ไม่ตรง Channel |
 
 ## ข้อ 2 และ 3
 
@@ -103,7 +103,7 @@ Error Report มีชีต `Rule 10` สำหรับรายละเอ�
 
 1. Split `Product Variants.specCharacteristics` ด้วย `,` แล้วค้นหาสมาชิก `price_group-mh_mg00557` แบบตรงตัว หากไม่มีให้ข้ามแถวนี้
 2. จำ index ของสมาชิกที่พบ แล้ว split `Product Variants.value` ด้วย `,` เพื่อเลือกค่าที่ index เดียวกัน โดยเริ่มนับ index จาก 0 เช่น `color,price_group-mh_mg00557` คู่กับ `RED,EUP` จะได้ index 1 และค่า `EUP`
-3. ใช้ `Product Variants.variantId` ค้นหาในชีต `Variant_ProductOffering_Price` คอลัมน์ `variantProductOfferingPrice.variantId` ต้องพบหนึ่งแถว ถ้าเกินหนึ่งแถวแจ้ง Error ว่า `Variant จับกับ POP มากกว่า 1` นับตามแถวจริง รวมแถวซ้ำ
+3. ใช้ `Product Variants.variantId` ค้นหาในชีต `Variant_ProductOffering_Price` คอลัมน์ `variantProductOfferingPrice.variantId` หากพบหนึ่งแถว ให้นำ POP ไปตรวจ Channel ต่อ หากพบมากกว่าหนึ่งแถว ให้นำ POP ID ทั้งหมดไปค้นในไฟล์ Product Offer Price ชีต `Product Offer Price` คอลัมน์ `Product Offer Price ID` โดยต้องพบข้อมูลของแต่ละ POP หนึ่งแถว และมี `priceType = Onetime` หนึ่ง POP ส่วน POP ที่เหลือทั้งหมดต้องเป็น `priceType = Pre-Booking` หากตรงรูปแบบนี้ ให้นำ POP ID ทุกตัวไปตรวจ Channel แยกกัน หากไม่ตรงให้แจ้ง Error รวมถึงกรณีไม่พบ POP, ข้อมูล POP ซ้ำ หรือ link อ้าง POP เดิมซ้ำ
 4. นำ `variantProductOfferingPrice.productOfferingPrice` จากแถวนั้น ไปค้นหา `POP_ID` ในไฟล์ Product Offer Price ชีต `Channel` ต้องพบหนึ่งแถว ถ้าเกินหนึ่งแถวแจ้ง Error ว่า `POP มีมากกว่า 1 Channel`
 5. ถ้า `ProductOfferPrice.Channel = All` ค่า price_group ที่เลือกต้องเป็น `EUP` ถ้าไม่ตรงให้แจ้ง Error
 6. ถ้า `ProductOfferPrice.Channel = Web Staff` ค่า price_group ที่เลือกต้องเป็น `STAFF` ถ้าไม่ตรงให้แจ้ง Error

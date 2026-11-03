@@ -33,12 +33,12 @@ def read_database(validator, env_path):
             mappings = [row for row in cursor.fetchall() if row.get('isActive', 1)]
             for table, (sheet, required, fields) in SCHEMAS.items():
                 # PO and POP workbooks both contain a sheet named Product Offer Price.
-                anchor = 'Characteristics for Price' if table == 'm' else 'ProductOffer'
+                anchor = 'Characteristics for Price' if table in ('m', 'pt') else 'ProductOffer'
                 workbook_names = {
                     row.get('EXCEL File') for row in mappings
                     if str(row.get('EXCEL SHEET NAME', '')).strip() == anchor
                     and row.get('EXCEL File')
-                } if table in ('m', 'o') else set()
+                } if table in ('m', 'o', 'pt') else set()
                 targets = {
                     row['DATABASE NAME'].strip() for row in mappings
                     if str(row.get('EXCEL SHEET NAME', '')).strip() == sheet

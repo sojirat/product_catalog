@@ -20,6 +20,7 @@ def resolve_export_input(value=None):
 
 # Table key: export subfolder, file prefix, raw workbook sheet name.
 EXPORT_FILES = {
+    'pt': ('Product Offer Price', 'productOfferPrice_', 'Product Offer Price'),
     'ch': ('Product Offer Price', 'pop_channel_', 'Channel'),
     'po': ('Product Offer', 'ProductOffer_', 'ProductOffer'),
     'o': ('Product Offer', 'product_offer_price_', 'Product Offer Price'),

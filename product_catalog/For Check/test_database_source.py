@@ -30,14 +30,14 @@ class Cursor:
             self.rows = [dict(zip(('EXCEL SHEET NAME', 'DATABASE NAME', 'UNOIN'),
                                   (sheet, table, '')))
                          for table, (sheet, _, _) in SCHEMAS.items()
-                         if not (self.missing_mapping and table == 'po')]
+                         if table != 'pt' and not (self.missing_mapping and table == 'po')]
             self.rows.append({'DATABASE NAME': 'po_extra', 'UNOIN': 'po'})
             for row in self.rows:
-                row['EXCEL File'] = 'POP.xlsx' if row['DATABASE NAME'] in ('m', 'c') else 'PO.xlsx'
+                row['EXCEL File'] = 'POP.xlsx' if row['DATABASE NAME'] in ('m', 'c', 'ch', 'pt') else 'PO.xlsx'
         else:
             source = sql.rsplit('[', 1)[1].rstrip(']')
             table = 'po' if source == 'po_extra' else source
-            columns = SCHEMAS[table][1]
+            columns = SCHEMAS[table][1] + (['priceType'] if table == 'm' else [])
             self.description = [(column,) for column in columns]
             self.rows = [{column: '001' for column in columns}]
             if self.nontext:

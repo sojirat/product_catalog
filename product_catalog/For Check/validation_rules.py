@@ -91,6 +91,7 @@ class RuleValidator:
         if not self.has(11, 'v'):
             return
         channels = group(self.rows['ch'], 'pid')
+        prices = group(self.rows['pt'], 'pid')
         for row in self.av:
             ids = row['cids'].split(',')
             cid = 'price_group-mh_mg00557'
@@ -105,35 +106,47 @@ class RuleValidator:
             if not self.has(11, 'l'):
                 return
             links = self.links_by_vid[row['vid']]
-            if len(links) != 1:
+            if not links:
                 self.finding(11, 'PRICE_GROUP_POP_COUNT', row, cid=cid,
-                             reason='Variant จับกับ POP มากกว่า 1' if links else 'Variant ไม่มี POP ที่เชื่อมกัน',
-                             related=f'จำนวนแถว link: {len(links)}')
+                             reason='Variant ไม่มี POP ที่เชื่อมกัน')
                 continue
-            pid = links[0]['pid']
-            if pid in self.ex_pop:
-                continue
+            pids = sorted({link['pid'] for link in links})
+            if len(links) > 1:
+                if not self.has(11, 'pt'):
+                    return
+                matched = [prices[pid] for pid in pids]
+                types = [items[0]['price_type'] for items in matched if len(items) == 1]
+                if (len(pids) != len(links) or any(len(items) != 1 for items in matched)
+                        or types.count('Onetime') != 1
+                        or any(value not in ('Onetime', 'Pre-Booking') for value in types)):
+                    self.finding(11, 'PRICE_GROUP_POP_TYPES', row, cid=cid,
+                                 reason='Variant ที่เชื่อมหลาย POP ต้องมี Onetime หนึ่งตัว และที่เหลือเป็น Pre-Booking เท่านั้น โดยต้องพบข้อมูลแต่ละ POP หนึ่งแถว',
+                                 related='; '.join(f"{pid}: {[p['price_type'] for p in prices[pid]]}" for pid in pids))
+                    continue
             if not self.has(11, 'ch'):
                 return
-            found = channels[pid]
-            if len(found) != 1:
-                self.finding(11, 'PRICE_GROUP_CHANNEL_COUNT', row, pid=pid, cid=cid,
-                             reason='POP มีมากกว่า 1 Channel' if found else 'POP ไม่มี Channel',
-                             related=f'จำนวนแถว Channel: {len(found)}')
-                continue
-            channel = found[0]
-            expected = {'All': 'EUP', 'Web Staff': 'STAFF'}.get(channel['channel'])
-            if expected is None:
-                self.finding(11, 'PRICE_GROUP_CHANNEL_UNDEFINED', row, pid=pid, severity='REVIEW',
-                             reason='ยังไม่ได้กำหนดเกณฑ์ price_group สำหรับ Channel นี้',
-                             related=f"Channel: {channel['channel']}")
-                continue
-            for i in positions:
-                if values[i] != expected:
-                    self.finding(11, 'PRICE_GROUP_CHANNEL_MISMATCH', row, pid=pid, cid=cid,
-                                 val=values[i], expected=expected,
-                                 reason='ค่า price_group ไม่ตรงกับ Channel ของ POP',
-                                 related=f"index: {i}; Channel: {channel['channel']}; source: {channel['src']} row {channel['rn']}")
+            for pid in pids:
+                if pid in self.ex_pop:
+                    continue
+                found = channels[pid]
+                if len(found) != 1:
+                    self.finding(11, 'PRICE_GROUP_CHANNEL_COUNT', row, pid=pid, cid=cid,
+                                 reason='POP มีมากกว่า 1 Channel' if found else 'POP ไม่มี Channel',
+                                 related=f'จำนวนแถว Channel: {len(found)}')
+                    continue
+                channel = found[0]
+                expected = {'All': 'EUP', 'Web Staff': 'STAFF'}.get(channel['channel'])
+                if expected is None:
+                    self.finding(11, 'PRICE_GROUP_CHANNEL_UNDEFINED', row, pid=pid, severity='REVIEW',
+                                 reason='ยังไม่ได้กำหนดเกณฑ์ price_group สำหรับ Channel นี้',
+                                 related=f"Channel: {channel['channel']}")
+                    continue
+                for i in positions:
+                    if values[i] != expected:
+                        self.finding(11, 'PRICE_GROUP_CHANNEL_MISMATCH', row, pid=pid, cid=cid,
+                                     val=values[i], expected=expected,
+                                     reason='ค่า price_group ไม่ตรงกับ Channel ของ POP',
+                                     related=f"index: {i}; Channel: {channel['channel']}; source: {channel['src']} row {channel['rn']}")
 
     def rule1(self):
         if self.has(1, 'm', 't'):

@@ -17,7 +17,7 @@ class ExportSourceTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name) / 'xlsx'
-        for folder, prefix, _ in EXPORT_FILES.values():
+        for folder, prefix, _ in set(EXPORT_FILES.values()):
             path = self.root / folder / (prefix + '30102026110649.xlsx')
             path.parent.mkdir(parents=True, exist_ok=True)
             path.touch()
@@ -65,7 +65,7 @@ class ExportSourceTests(unittest.TestCase):
                 xlsx.touch()
 
     def test_csv_only_round_resolves_and_discovers_without_xlsx_directory(self):
-        for folder, prefix, _ in EXPORT_FILES.values():
+        for folder, prefix, _ in set(EXPORT_FILES.values()):
             xlsx = next((self.root / folder).glob(prefix + '*.xlsx'))
             path = self.root.parent / 'csv' / folder / (xlsx.stem + '.csv')
             path.parent.mkdir(parents=True, exist_ok=True)

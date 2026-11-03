@@ -9,10 +9,11 @@ from validation_rules import RuleValidator
 class Rule11Tests(unittest.TestCase):
     def setUp(self):
         self.v = RuleValidator({'exclude_po_ids': [], 'exclude_pop_ids': []})
-        self.v.ready.update(('v', 'l', 'ch'))
+        self.v.ready.update(('v', 'l', 'ch', 'pt'))
         self.insert('v', 'po1', 'v1', 'color,price_group-mh_mg00557,size', 'RED,EUP,L', 'sku1')
         self.insert('l', 'v1', 'pop1')
         self.insert('ch', 'pop1', 'All')
+        self.insert('pt', 'pop1', 'Onetime')
 
     def insert(self, table, *values):
         self.v._insert(table, [('fixture.xlsx', table, len(self.v.rows[table]) + 2, *values)])
@@ -39,10 +40,33 @@ class Rule11Tests(unittest.TestCase):
 
     def test_duplicate_link_rows_are_error_even_for_same_pop(self):
         self.insert('l', 'v1', 'pop1')
-        self.assertEqual(self.check()[0]['reason'], 'Variant จับกับ POP มากกว่า 1')
+        self.assertEqual(self.check()[0]['code'], 'PRICE_GROUP_POP_TYPES')
+
+    def test_onetime_and_prebooking_check_every_pop(self):
+        self.insert('l', 'v1', 'pop2')
+        self.insert('pt', 'pop2', 'Pre-Booking')
+        self.insert('ch', 'pop2', 'All')
+        self.assertEqual(self.check(), [])
+        self.v.rows['ch'][1]['channel'] = 'Web Staff'
+        self.assertEqual(self.check()[0]['pid'], 'pop2')
+
+    def test_invalid_multi_pop_types(self):
+        self.insert('l', 'v1', 'pop2')
+        self.insert('pt', 'pop2', 'Pre-Booking')
+        for first, second in [('Onetime', 'Onetime'), ('Pre-Booking', 'Pre-Booking'), ('Onetime', 'Other')]:
+            with self.subTest(types=(first, second)):
+                self.v.rows['pt'][0]['price_type'] = first
+                self.v.rows['pt'][1]['price_type'] = second
+                self.v.issues = []
+                self.assertEqual(self.check()[0]['code'], 'PRICE_GROUP_POP_TYPES')
+
+    def test_multi_pop_missing_master_is_error(self):
+        self.insert('l', 'v1', 'missing')
+        self.assertEqual(self.check()[0]['code'], 'PRICE_GROUP_POP_TYPES')
 
     def test_duplicate_channel_rows_are_error(self):
         self.insert('ch', 'pop1', 'All')
+        self.insert('pt', 'pop1', 'Onetime')
         self.assertEqual(self.check()[0]['reason'], 'POP มีมากกว่า 1 Channel')
 
     def test_missing_links_and_channels_are_errors(self):

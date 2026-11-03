@@ -348,7 +348,7 @@ def main(argv=None):
  logging.basicConfig(level=logging.INFO,format='%(asctime)s %(message)s',handlers=[logging.StreamHandler(),logging.FileHandler(out/'run.log',mode='w',encoding='utf-8')])
  try:
   conf=config_read(args.config)
-  paths=list(sources.values())+cv_paths if sources else ([] if args.database else [args.po,args.pop,args.meta]+(args.char_value or []))
+  paths=list(dict.fromkeys(sources.values()))+cv_paths if sources else ([] if args.database else [args.po,args.pop,args.meta]+(args.char_value or []))
   if len({str(p.resolve()) for p in paths})!=len(paths):raise ValueError('ระบุ input path ซ้ำ')
   for p in paths:
    if not p.is_file():raise FileNotFoundError(p)
@@ -365,7 +365,7 @@ def main(argv=None):
    from csv_fallback import read_with_fallback
    register=lambda p:manifest.__setitem__(str(p),digest(p))
    for t in ('po','o','v','l'):read_with_fallback(v,args.po.resolve(),t,SCHEMAS[t][0],args.env,on_source=register)
-   for t in ('m','c','ch'):read_with_fallback(v,args.pop.resolve(),t,SCHEMAS[t][0],args.env,on_source=register)
+   for t in ('m','c','ch','pt'):read_with_fallback(v,args.pop.resolve(),t,SCHEMAS[t][0],args.env,on_source=register)
    read_with_fallback(v,args.meta.resolve(),'t',SCHEMAS['t'][0],args.env,on_source=register)
    if args.char_value:v.read_cv_files([p.resolve() for p in args.char_value])
    else:read_with_fallback(v,args.po.resolve(),'cv',SCHEMAS['cv'][0],args.env,on_source=register)

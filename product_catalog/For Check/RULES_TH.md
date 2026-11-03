@@ -103,13 +103,15 @@ Error Report มีชีต `Rule 10` สำหรับรายละเอ�
 
 1. Split `Product Variants.specCharacteristics` ด้วย `,` แล้วค้นหาสมาชิก `price_group-mh_mg00557` แบบตรงตัว หากไม่มีให้ข้ามแถวนี้
 2. จำ index ของสมาชิกที่พบ แล้ว split `Product Variants.value` ด้วย `,` เพื่อเลือกค่าที่ index เดียวกัน โดยเริ่มนับ index จาก 0 เช่น `color,price_group-mh_mg00557` คู่กับ `RED,EUP` จะได้ index 1 และค่า `EUP`
-3. ใช้ `Product Variants.variantId` ค้นหาในชีต `Variant_ProductOffering_Price` คอลัมน์ `variantProductOfferingPrice.variantId` หากพบหนึ่งแถว ให้นำ POP ไปตรวจ Channel ต่อ หากพบมากกว่าหนึ่งแถว ให้นำ POP ID ทั้งหมดไปค้นในไฟล์ Product Offer Price ชีต `Product Offer Price` คอลัมน์ `Product Offer Price ID` โดยต้องพบข้อมูลของแต่ละ POP หนึ่งแถว และมี `priceType = Onetime` หนึ่ง POP ส่วน POP ที่เหลือทั้งหมดต้องเป็น `priceType = Pre-Booking` หากตรงรูปแบบนี้ ให้นำ POP ID ทุกตัวไปตรวจ Channel แยกกัน หากไม่ตรงให้แจ้ง Error รวมถึงกรณีไม่พบ POP, ข้อมูล POP ซ้ำ หรือ link อ้าง POP เดิมซ้ำ
-4. นำ `variantProductOfferingPrice.productOfferingPrice` จากแถวนั้น ไปค้นหา `POP_ID` ในไฟล์ Product Offer Price ชีต `Channel` ต้องพบหนึ่งแถว ถ้าเกินหนึ่งแถวแจ้ง Error ว่า `POP มีมากกว่า 1 Channel`
-5. ถ้า `ProductOfferPrice.Channel = All` ค่า price_group ที่เลือกต้องเป็น `EUP` ถ้าไม่ตรงให้แจ้ง Error
-6. ถ้า `ProductOfferPrice.Channel = Web Staff` ค่า price_group ที่เลือกต้องเป็น `STAFF` ถ้าไม่ตรงให้แจ้ง Error
+3. ใช้ `Product Variants.variantId` ค้นหาในชีต `Variant_ProductOffering_Price` คอลัมน์ `variantProductOfferingPrice.variantId` หากพบหนึ่งแถว ให้นำ POP ไปตรวจ priceType ก่อนตรวจ Channel หากพบมากกว่าหนึ่งแถว ให้นำ POP ID ทั้งหมดไปค้นในไฟล์ Product Offer Price ชีต `Product Offer Price` คอลัมน์ `Product Offer Price ID` โดยต้องพบข้อมูลของแต่ละ POP หนึ่งแถว และมี `priceType = Onetime` หนึ่ง POP ส่วน POP ที่เหลือทั้งหมดต้องเป็น `priceType = Pre-Booking` หากตรงรูปแบบนี้ ให้นำ POP ID ทุกตัวไปตรวจ Channel แยกกัน หากไม่ตรงให้แจ้ง Error รวมถึงกรณีไม่พบ POP, ข้อมูล POP ซ้ำ หรือ link อ้าง POP เดิมซ้ำ
+4. นำ POP ID ทุกตัวไปค้นในไฟล์ Product Offer Price ชีต `Product Offer Price` คอลัมน์ `Product Offer Price ID` และเก็บ `priceType` ของแต่ละ POP หากไม่พบ POP หรือ priceType ว่าง ให้แจ้ง Error ว่า `POP ไม่มีข้อมูล priceType` ก่อนตรวจ Channel หากพบข้อมูล POP ซ้ำให้แจ้ง Error
+5. นำ `variantProductOfferingPrice.productOfferingPrice` จากแถวนั้น ไปค้นหา `POP_ID` ในไฟล์ Product Offer Price ชีต `Channel` ต้องพบหนึ่งแถว ถ้าเกินหนึ่งแถวแจ้ง Error ว่า `POP มีมากกว่า 1 Channel`
+6. ถ้า `ProductOfferPrice.Channel = All` ค่า price_group ที่เลือกต้องเป็น `EUP` และ `priceType` ของ POP ต้องเป็น `Onetime` หากไม่ตรงเงื่อนไขใดให้แจ้ง Error
+7. ถ้า `ProductOfferPrice.Channel = Web Staff` ค่า price_group ที่เลือกต้องเป็น `STAFF` และ `priceType` ของ POP ต้องเป็น `Onetime` หากไม่ตรงเงื่อนไขใดให้แจ้ง Error
+8. ถ้า `ProductOfferPrice.Channel = Web Pre-Booking` ค่า `priceType` ของ POP ต้องเป็น `Pre-Booking` หากตรงให้ผ่าน โดยไม่บังคับค่า price_group หากไม่ตรงให้แจ้ง Error
 
 หากไม่มี link หรือไม่มี Channel ให้แจ้ง Error หากจำนวนสมาชิกของ specCharacteristics และ value ไม่เท่ากัน หรือค่า price_group ว่าง ให้แจ้ง Error
-หากพบ price_group หลายตำแหน่ง ให้ตรวจค่าของทุกตำแหน่ง หาก Channel เป็นค่าอื่นนอกเหนือจากสองค่าที่กำหนด ให้เป็น Review
+หากพบ price_group หลายตำแหน่ง ให้ตรวจค่าของทุกตำแหน่ง หาก Channel เป็นค่าอื่นนอกเหนือจากสามค่าที่กำหนด ให้เป็น Review
 เทียบค่าตรงตัว แยกตัวพิมพ์ใหญ่เล็ก ไม่ตัดช่องว่าง ใช้รายการยกเว้น PO/POP ตาม config เช่นเดียวกับกฎอื่น
 
 โหมด export อ่าน Channel จาก `xlsx/Product Offer Price/pop_channel_*.xlsx` ชีต `Channel` โดยต้องมีคอลัมน์ `POP_ID` และ `ProductOfferPrice.Channel`

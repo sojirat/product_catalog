@@ -45,7 +45,7 @@ class Rule11Tests(unittest.TestCase):
     def test_onetime_and_prebooking_check_every_pop(self):
         self.insert('l', 'v1', 'pop2')
         self.insert('pt', 'pop2', 'Pre-Booking')
-        self.insert('ch', 'pop2', 'All')
+        self.insert('ch', 'pop2', 'Web Pre-Booking')
         self.assertEqual(self.check(), [])
         self.v.rows['ch'][1]['channel'] = 'Web Staff'
         self.assertEqual(self.check()[0]['pid'], 'pop2')
@@ -62,11 +62,10 @@ class Rule11Tests(unittest.TestCase):
 
     def test_multi_pop_missing_master_is_error(self):
         self.insert('l', 'v1', 'missing')
-        self.assertEqual(self.check()[0]['code'], 'PRICE_GROUP_POP_TYPES')
+        self.assertEqual(self.check()[0]['code'], 'PRICE_GROUP_PRICE_TYPE_MISSING')
 
     def test_duplicate_channel_rows_are_error(self):
         self.insert('ch', 'pop1', 'All')
-        self.insert('pt', 'pop1', 'Onetime')
         self.assertEqual(self.check()[0]['reason'], 'POP มีมากกว่า 1 Channel')
 
     def test_missing_links_and_channels_are_errors(self):
@@ -89,6 +88,30 @@ class Rule11Tests(unittest.TestCase):
                 self.v.rows['v'][0]['vals'] = values
                 self.v.issues = []
                 self.assertEqual(self.check()[0]['code'], 'PRICE_GROUP_VALUE_INVALID')
+
+    def test_missing_price_type_precedes_channel_check(self):
+        for rows in [[], [dict(self.v.rows['pt'][0], price_type='')]]:
+            with self.subTest(rows=rows):
+                self.v.rows['pt'] = rows
+                self.v.issues = []
+                self.v.rows['ch'] = []
+                self.assertEqual(self.check()[0]['reason'], 'POP ไม่มีข้อมูล priceType')
+
+    def test_channel_price_type_matrix(self):
+        for channel, price, value, passes in [
+                ('All', 'Onetime', 'EUP', True),
+                ('All', 'Pre-Booking', 'EUP', False),
+                ('Web Staff', 'Onetime', 'STAFF', True),
+                ('Web Staff', 'Pre-Booking', 'STAFF', False),
+                ('Web Pre-Booking', 'Pre-Booking', 'EUP', True),
+                ('Web Pre-Booking', 'Pre-Booking', 'STAFF', True),
+                ('Web Pre-Booking', 'Onetime', 'EUP', False)]:
+            with self.subTest(channel=channel, price=price, value=value):
+                self.v.rows['ch'][0]['channel'] = channel
+                self.v.rows['pt'][0]['price_type'] = price
+                self.v.rows['v'][0]['vals'] = 'RED,' + value + ',L'
+                self.v.issues = []
+                self.assertEqual(not self.check(), passes)
 
     def test_unknown_channel_needs_review(self):
         self.v.rows['ch'][0]['channel'] = 'Other'
@@ -117,7 +140,8 @@ class Rule11Tests(unittest.TestCase):
             validator = Validator(CONFIG)
             validator.rows['v'] = self.v.rows['v']
             validator.rows['l'] = self.v.rows['l']
-            validator.ready.update(('v', 'l'))
+            validator.rows['pt'] = self.v.rows['pt']
+            validator.ready.update(('v', 'l', 'pt'))
             validator.read_xlsx(source, 'ch', sheet_name='Channel')
             validator.indexes()
             validator.rule11()

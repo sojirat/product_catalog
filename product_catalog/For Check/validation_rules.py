@@ -111,6 +111,23 @@ class RuleValidator:
                              reason='Variant ไม่มี POP ที่เชื่อมกัน')
                 continue
             pids = sorted({link['pid'] for link in links})
+            if not self.has(11, 'pt'):
+                return
+            invalid_prices = False
+            for pid in pids:
+                if pid in self.ex_pop:
+                    continue
+                items = prices[pid]
+                if not items or any(item['price_type'] == '' for item in items):
+                    self.finding(11, 'PRICE_GROUP_PRICE_TYPE_MISSING', row, pid=pid,
+                                 reason='POP ไม่มีข้อมูล priceType')
+                    invalid_prices = True
+                elif len(items) != 1:
+                    self.finding(11, 'PRICE_GROUP_PRICE_TYPE_MULTIPLE', row, pid=pid,
+                                 reason='POP มีข้อมูลใน Product Offer Price มากกว่าหนึ่งแถว')
+                    invalid_prices = True
+            if invalid_prices:
+                continue
             if len(links) > 1:
                 if not self.has(11, 'pt'):
                     return
@@ -135,6 +152,16 @@ class RuleValidator:
                                  related=f'จำนวนแถว Channel: {len(found)}')
                     continue
                 channel = found[0]
+                price_type = prices[pid][0]['price_type']
+                expected_type = 'Pre-Booking' if channel['channel'] == 'Web Pre-Booking' else 'Onetime'
+                if channel['channel'] in ('All', 'Web Staff', 'Web Pre-Booking') and price_type != expected_type:
+                    self.finding(11, 'PRICE_GROUP_CHANNEL_PRICE_TYPE_MISMATCH', row, pid=pid,
+                                 val=price_type, expected=expected_type,
+                                 reason='priceType ของ POP ไม่ตรงกับ Channel',
+                                 related=f"Channel: {channel['channel']}; priceType source: {prices[pid][0]['src']} row {prices[pid][0]['rn']}")
+                    continue
+                if channel['channel'] == 'Web Pre-Booking':
+                    continue
                 expected = {'All': 'EUP', 'Web Staff': 'STAFF'}.get(channel['channel'])
                 if expected is None:
                     self.finding(11, 'PRICE_GROUP_CHANNEL_UNDEFINED', row, pid=pid, severity='REVIEW',

@@ -57,6 +57,7 @@ class FallbackTests(unittest.TestCase):
         self.assertNotIn('po',self.v.ready)
 
     def test_mapping_uses_excel_file_and_sheet_parameters(self):
+        self.xlsx = self.xlsx.with_name('PO_30102026110649.xlsx')
         cursor = Mock()
         cursor.fetchall.return_value = [{'Raw data Output File':'ProductOffer_<ddmmyyyyhhmiss>.csv'}]
         connection = Mock()
@@ -71,6 +72,9 @@ class FallbackTests(unittest.TestCase):
         connection.close.assert_called_once()
 
     def test_raw_export_resolves_excel_name_then_queries_both_columns(self):
+        moved = self.csv.parent.parent / self.csv.name
+        self.csv.rename(moved)
+        self.csv = moved
         cursor = Mock()
         row={'EXCEL File':'PO.xlsx','EXCEL SHEET NAME':'Product_Offer','Raw data Output File':'ProductOffer_<ddmmyyyyhhmiss>.csv'}
         cursor.fetchall.side_effect=[[],[row],[row]]
@@ -80,3 +84,10 @@ class FallbackTests(unittest.TestCase):
         with patch('csv_fallback.open_database',return_value=(connection,'dbo')):
             self.assertEqual(find_csv(self.xlsx,'ProductOffer',Path('.env')),self.csv.resolve())
         self.assertEqual(cursor.execute.call_args.args[1],('PO.xlsx','Product_Offer'))
+
+    def test_direct_csv_fallback_does_not_connect_database(self):
+        with patch('csv_fallback.open_database', side_effect=AssertionError('must stay offline')) as database:
+            actual = read_with_fallback(self.v, self.xlsx, 'po', 'ProductOffer', Path('.env'))
+        self.assertEqual(actual, self.csv.resolve())
+        self.assertEqual([r['po'] for r in self.v.rows['po']], ['001', '002'])
+        database.assert_not_called()

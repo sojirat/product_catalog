@@ -14,6 +14,11 @@ READ_ERRORS = (OSError, ValueError, KeyError, TypeError, EOFError, BadZipFile, P
 
 
 def find_csv(xlsx_path, sheet, env_path):
+    xlsx_root = next((p for p in xlsx_path.parents if p.name.lower() == 'xlsx'), None)
+    if xlsx_root is not None:
+        direct = xlsx_root.parent / 'csv' / xlsx_path.relative_to(xlsx_root).with_suffix('.csv')
+        if direct.is_file():
+            return direct.resolve()
     connection, schema = open_database(env_path)
     try:
         with connection.cursor() as cursor:

@@ -9,6 +9,7 @@ TYPE = 'product_type-mh_mg00162'
 BLANK = (None, '')
 
 SCHEMAS = {
+ 'ch': ('Channel', ['POP_ID', 'ProductOfferPrice.Channel'], ['pid', 'channel']),
  'po': ('ProductOffer', ['Product Id'], ['po']),
  'm': ('Product Offer Price', ['Product Offer Price ID'], ['pid']),
  'o': ('Product Offer Price', ['Product Offer ID','Product Offer Price ID'], ['po','pid']),

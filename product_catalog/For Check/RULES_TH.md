@@ -20,6 +20,7 @@
 | 9.5 | ตรวจ SKU ของกลุ่ม Variant ที่เชื่อม POP เดียวกัน | SKU ต่างกันผ่านด้านแยกแยะ Variant ห้าม Error เพียงเพราะ Characteristic เหมือนกัน |
 | 9.6 | เทียบคู่ข้อมูลทั้งระดับ Variant และ POP ที่เชื่อมกัน | ID + value เดียวกันซ้ำทั้งสองระดับ |
 | 10 | ตรวจแถวซ้ำใน Char_Value ภายใต้ Product Offer ID เดียวกัน | Characteristics ID + Characteristics Name + valueType + value ตรงกันมากกว่าหนึ่งแถว |
+| 11 | price_group ของ Variant ต้องตรงกับ Channel ของ POP | link หรือ Channel ไม่ครบหนึ่งแถว หรือ All ไม่ใช่ EUP หรือ Web Staff ไม่ใช่ STAFF |
 
 ## ข้อ 2 และ 3
 
@@ -95,6 +96,26 @@ Error Report มีชีต `Rule 10` สำหรับรายละเอ�
 
 - `All`: รายการ `Char Value.Product Offer ID` ที่ผิดข้อ 10 ไม่ซ้ำ เรียงตาม ID
 - `Char duplicate detail`: ทุกแถวในกลุ่มที่ซ้ำ เรียงกลุ่มตาม `Char Value.Product Offer ID` พร้อมคอลัมน์ตามลำดับ ได้แก่ `Char Value.Product Offer ID`, `Char Value.Product Spec ID`, `Char Value.Product Spec Name`, `Char Value.Product Offer Characteristics ID`, `Char Value.Product Offer Characteristics Name`, `Char Value.valueType`, `Char Value.value`, `Char Value.isDefault`
+
+## ข้อ 11 ตรวจสอบว่า Price Type เลือก POP ถูกต้อง
+
+ตรวจทีละแถวของไฟล์ Product Offer ชีต `Product_Variants` ตามลำดับดังนี้:
+
+1. Split `Product Variants.specCharacteristics` ด้วย `,` แล้วค้นหาสมาชิก `price_group-mh_mg00557` แบบตรงตัว หากไม่มีให้ข้ามแถวนี้
+2. จำ index ของสมาชิกที่พบ แล้ว split `Product Variants.value` ด้วย `,` เพื่อเลือกค่าที่ index เดียวกัน โดยเริ่มนับ index จาก 0 เช่น `color,price_group-mh_mg00557` คู่กับ `RED,EUP` จะได้ index 1 และค่า `EUP`
+3. ใช้ `Product Variants.variantId` ค้นหาในชีต `Variant_ProductOffering_Price` คอลัมน์ `variantProductOfferingPrice.variantId` ต้องพบหนึ่งแถว ถ้าเกินหนึ่งแถวแจ้ง Error ว่า `Variant จับกับ POP มากกว่า 1` นับตามแถวจริง รวมแถวซ้ำ
+4. นำ `variantProductOfferingPrice.productOfferingPrice` จากแถวนั้น ไปค้นหา `POP_ID` ในไฟล์ Product Offer Price ชีต `Channel` ต้องพบหนึ่งแถว ถ้าเกินหนึ่งแถวแจ้ง Error ว่า `POP มีมากกว่า 1 Channel`
+5. ถ้า `ProductOfferPrice.Channel = All` ค่า price_group ที่เลือกต้องเป็น `EUP` ถ้าไม่ตรงให้แจ้ง Error
+6. ถ้า `ProductOfferPrice.Channel = Web Staff` ค่า price_group ที่เลือกต้องเป็น `STAFF` ถ้าไม่ตรงให้แจ้ง Error
+
+หากไม่มี link หรือไม่มี Channel ให้แจ้ง Error หากจำนวนสมาชิกของ specCharacteristics และ value ไม่เท่ากัน หรือค่า price_group ว่าง ให้แจ้ง Error
+หากพบ price_group หลายตำแหน่ง ให้ตรวจค่าของทุกตำแหน่ง หาก Channel เป็นค่าอื่นนอกเหนือจากสองค่าที่กำหนด ให้เป็น Review
+เทียบค่าตรงตัว แยกตัวพิมพ์ใหญ่เล็ก ไม่ตัดช่องว่าง ใช้รายการยกเว้น PO/POP ตาม config เช่นเดียวกับกฎอื่น
+
+โหมด export อ่าน Channel จาก `xlsx/Product Offer Price/pop_channel_*.xlsx` ชีต `Channel` โดยต้องมีคอลัมน์ `POP_ID` และ `ProductOfferPrice.Channel`
+หากไม่พบไฟล์ XLSX ให้ค้น CSV ชื่อเดียวกันในโฟลเดอร์ `csv` ของรอบ export เดียวกัน ทุกชีตใช้เงื่อนไขนี้ รวมถึง Product_Variants, Variant_ProductOffering_Price และ Channel หากพบ XLSX แต่อ่านหรือหาชีตไม่สำเร็จ ให้ใช้ CSV fallback ผ่าน mapping เดิม หากไม่พบทั้ง XLSX และ CSV ให้หยุดพร้อมแจ้งข้อผิดพลาด
+โหมดไฟล์รวมอ่านชีต Channel จากไฟล์ `--pop` และโหมดฐานข้อมูลอ่านผ่าน template mapping
+ผลตรวจอยู่ในชีต `Rule 11` ของรายงาน และแสดงใน summary เช่นเดียวกับข้ออื่น
 
 ## สรุปความครบถ้วน
 

@@ -84,8 +84,56 @@ class RuleValidator:
 
     def run(self):
         self.indexes()
-        for number in range(1, 11):
+        for number in range(1, 12):
             getattr(self, f'rule{number}')()
+
+    def rule11(self):
+        if not self.has(11, 'v'):
+            return
+        channels = group(self.rows['ch'], 'pid')
+        for row in self.av:
+            ids = row['cids'].split(',')
+            cid = 'price_group-mh_mg00557'
+            if cid not in ids:
+                continue
+            values = row['vals'].split(',')
+            positions = [i for i, value in enumerate(ids) if value == cid]
+            if len(ids) != len(values) or any(values[i] == '' for i in positions):
+                self.finding(11, 'PRICE_GROUP_VALUE_INVALID', row, cid=cid,
+                             reason='ไม่สามารถจับคู่ price_group กับ value ได้ เพราะจำนวนสมาชิกไม่เท่ากันหรือค่า price_group ว่าง')
+                continue
+            if not self.has(11, 'l'):
+                return
+            links = self.links_by_vid[row['vid']]
+            if len(links) != 1:
+                self.finding(11, 'PRICE_GROUP_POP_COUNT', row, cid=cid,
+                             reason='Variant จับกับ POP มากกว่า 1' if links else 'Variant ไม่มี POP ที่เชื่อมกัน',
+                             related=f'จำนวนแถว link: {len(links)}')
+                continue
+            pid = links[0]['pid']
+            if pid in self.ex_pop:
+                continue
+            if not self.has(11, 'ch'):
+                return
+            found = channels[pid]
+            if len(found) != 1:
+                self.finding(11, 'PRICE_GROUP_CHANNEL_COUNT', row, pid=pid, cid=cid,
+                             reason='POP มีมากกว่า 1 Channel' if found else 'POP ไม่มี Channel',
+                             related=f'จำนวนแถว Channel: {len(found)}')
+                continue
+            channel = found[0]
+            expected = {'All': 'EUP', 'Web Staff': 'STAFF'}.get(channel['channel'])
+            if expected is None:
+                self.finding(11, 'PRICE_GROUP_CHANNEL_UNDEFINED', row, pid=pid, severity='REVIEW',
+                             reason='ยังไม่ได้กำหนดเกณฑ์ price_group สำหรับ Channel นี้',
+                             related=f"Channel: {channel['channel']}")
+                continue
+            for i in positions:
+                if values[i] != expected:
+                    self.finding(11, 'PRICE_GROUP_CHANNEL_MISMATCH', row, pid=pid, cid=cid,
+                                 val=values[i], expected=expected,
+                                 reason='ค่า price_group ไม่ตรงกับ Channel ของ POP',
+                                 related=f"index: {i}; Channel: {channel['channel']}; source: {channel['src']} row {channel['rn']}")
 
     def rule1(self):
         if self.has(1, 'm', 't'):
@@ -350,7 +398,7 @@ class RuleValidator:
 
     def summary(self):
         rules = []
-        for number in range(1, 11):
+        for number in range(1, 12):
             counts = Counter(i['severity'] for i in self.issues if i['rule'].split('.')[0] == str(number))
             errors, review = counts['ERROR'], counts['REVIEW']
             rules.append(dict(rule=number, status='FAIL' if errors else 'INCOMPLETE' if review else 'PASS',

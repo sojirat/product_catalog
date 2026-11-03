@@ -11,15 +11,16 @@ def resolve_export_input(value=None):
         return latest_export_input(DEFAULT_EXPORT_DIR)
     value = Path(value)
     root = DEFAULT_EXPORT_DIR / value if not value.is_absolute() and len(value.parts) == 1 else value
-    if (root / 'xlsx').is_dir():
+    if (root / 'xlsx').is_dir() or (root / 'csv').is_dir():
         root = root / 'xlsx'
-    if not root.is_dir():
+    if not root.is_dir() and not (root.name.lower() == 'xlsx' and (root.parent / 'csv').is_dir()):
         raise NotADirectoryError(root)
     return root.resolve()
 
 
 # Table key: export subfolder, file prefix, raw workbook sheet name.
 EXPORT_FILES = {
+    'ch': ('Product Offer Price', 'pop_channel_', 'Channel'),
     'po': ('Product Offer', 'ProductOffer_', 'ProductOffer'),
     'o': ('Product Offer', 'product_offer_price_', 'Product Offer Price'),
     'v': ('Product Offer', 'PO_Product_Variants_', 'Product Variants'),
@@ -44,7 +45,7 @@ def latest_export_input(export_dir):
     if not candidates:
         raise ValueError(f'No timestamped export folders (DDMMYYYYHHMMSS) found in {export_dir}')
     root = max(candidates)[1] / 'xlsx'
-    if not root.is_dir():
+    if not root.is_dir() and not (root.parent / 'csv').is_dir():
         raise NotADirectoryError(f'Latest export has no xlsx folder: {root}')
     return root.resolve()
 
@@ -58,10 +59,14 @@ def one_file(folder, pattern):
 
 def discover_export_inputs(input_dir, char_values=None):
     root = input_dir.resolve()
-    if not root.is_dir():
+    if not root.is_dir() and not (root.name.lower() == 'xlsx' and (root.parent / 'csv').is_dir()):
         raise NotADirectoryError(root)
-    sources = {table: one_file(root / folder, prefix + '*.xlsx')
-               for table, (folder, prefix, _) in EXPORT_FILES.items()}
+    sources = {}
+    for table, (folder, prefix, _) in EXPORT_FILES.items():
+        if list((root / folder).glob(prefix + '*.xlsx')):
+            sources[table] = one_file(root / folder, prefix + '*.xlsx')
+        else:
+            sources[table] = one_file(root.parent / 'csv' / folder, prefix + '*.csv')
     if char_values:
         cv_paths = [path.resolve() for path in char_values]
     else:
@@ -85,7 +90,14 @@ def read_export_inputs(validator, sources, cv_paths, env_path=None, on_source=No
     from csv_fallback import read_with_fallback
     env_path = env_path or Path(__file__).resolve().parent.parent / '.env'
     for table, path in sources.items():
-        read_with_fallback(validator,path,table,EXPORT_FILES[table][2],env_path,on_source=on_source)
+        if path.suffix.lower() == '.csv':
+            if on_source:
+                on_source(path)
+            with path.open(encoding='utf-8-sig', newline='') as stream:
+                validator._csv(stream, str(path), table=table)
+            validator.ready.add(table)
+        else:
+            read_with_fallback(validator,path,table,EXPORT_FILES[table][2],env_path,on_source=on_source)
     if cv_paths[0].suffix.lower() == '.xlsx':
         read_with_fallback(validator,cv_paths[0],'cv','Char_Value',env_path,on_source=on_source)
     else:

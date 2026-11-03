@@ -1,4 +1,5 @@
 import io
+import csv
 import logging
 import tempfile
 import unittest
@@ -7,7 +8,8 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from export_source import EXPORT_FILES, discover_export_inputs, latest_export_input, read_export_inputs, resolve_export_input
-from validate_po_pop import main
+from validate_po_pop import main, Validator, SCHEMAS
+from test_validator import CONFIG
 
 
 class ExportSourceTests(unittest.TestCase):
@@ -38,6 +40,48 @@ class ExportSourceTests(unittest.TestCase):
     def test_ambiguous_files_require_selection(self):
         (self.root / 'Product Offer' / 'ProductOffer_other.xlsx').touch()
         with self.assertRaisesRegex(ValueError, 'found 2'):
+            discover_export_inputs(self.root)
+
+    def test_every_missing_xlsx_uses_csv_and_reads_actual_values(self):
+        for table, (folder, prefix, _) in EXPORT_FILES.items():
+            with self.subTest(table=table):
+                xlsx = next((self.root / folder).glob(prefix + '*.xlsx'))
+                path = self.root.parent / 'csv' / folder / (xlsx.stem + '.csv')
+                path.parent.mkdir(parents=True, exist_ok=True)
+                values = [f'{table}-{field}' for field in SCHEMAS[table][2]]
+                with path.open('w', encoding='utf-8-sig', newline='') as stream:
+                    writer = csv.writer(stream)
+                    writer.writerow(SCHEMAS[table][1])
+                    writer.writerow(values)
+                xlsx.unlink()
+                sources, _ = discover_export_inputs(self.root)
+                self.assertEqual(sources[table], path.resolve())
+                validator = Validator(CONFIG)
+                with patch('csv_fallback.read_with_fallback') as fallback:
+                    read_export_inputs(validator, {table: sources[table]}, [self.csv])
+                fallback.assert_not_called()
+                self.assertIn(table, validator.ready)
+                self.assertEqual([validator.rows[table][0][field] for field in SCHEMAS[table][2]], values)
+                xlsx.touch()
+
+    def test_csv_only_round_resolves_and_discovers_without_xlsx_directory(self):
+        for folder, prefix, _ in EXPORT_FILES.values():
+            xlsx = next((self.root / folder).glob(prefix + '*.xlsx'))
+            path = self.root.parent / 'csv' / folder / (xlsx.stem + '.csv')
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+            xlsx.unlink()
+        for folder in self.root.iterdir():
+            folder.rmdir()
+        self.root.rmdir()
+        self.assertEqual(resolve_export_input(self.root.parent), self.root)
+        self.assertEqual(resolve_export_input(self.root), self.root)
+        sources, _ = discover_export_inputs(self.root)
+        self.assertTrue(all(path.suffix == '.csv' for path in sources.values()))
+
+    def test_missing_xlsx_and_csv_fails_explicitly(self):
+        (self.root / 'Product Offer Price' / 'pop_channel_30102026110649.xlsx').unlink()
+        with self.assertRaisesRegex(ValueError, 'pop_channel_.*csv.*found 0'):
             discover_export_inputs(self.root)
 
     def test_explicit_char_value_overrides_missing_sibling_csv(self):
@@ -128,7 +172,7 @@ class ExportSourceTests(unittest.TestCase):
         report_dir = output_dir / 'check_30102026201519'
         self.assertTrue((report_dir / 'summary.txt').is_file())
         self.assertTrue((report_dir / 'summary.json').is_file())
-        self.assertFalse(list(report_dir.glob('Result_check_PO_POP_01-10_ErrorOnly_*.xlsx')))
+        self.assertFalse(list(report_dir.glob('Result_check_PO_POP_01-11_ErrorOnly_*.xlsx')))
         self.assertEqual(len(list(report_dir.glob('Result_Review_Warning_*.xlsx'))), 2)
         self.assertFalse(list(report_dir.glob('run_*')))
         self.assertFalse(list(output_dir.glob('run_*')))

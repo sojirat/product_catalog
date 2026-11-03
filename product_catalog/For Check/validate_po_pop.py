@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PO/POP rules 1–10. Python 3.10+. Export or SQL Server input, exact comparisons, full scans.
+"""PO/POP rules 1–11. Python 3.10+. Export or SQL Server input, exact comparisons, full scans.
 
 Defaults to the latest project export. --database reads SQL Server using
 product_catalog/.env. Validation runs in Python memory.
@@ -203,7 +203,7 @@ def export_report(v, path, severity, verify=True, rows_per_sheet=DEFAULT_REPORT_
   if sheet is not None:
    sheet.auto_filter.ref=f'A1:{get_column_letter(len(header))}{rowcounts[sheet.title]}'
  LOG.info('Report %s: writing %s cases',path.name,len(selected))
- buckets={str(number):[] for number in range(1,11)}
+ buckets={str(number):[] for number in range(1,12)}
  if any(r['rule']=='INPUT' for r in selected):buckets={'INPUT':[],**buckets}
  for r in selected:
   buckets[r['rule'].split('.')[0]].append(r)
@@ -365,7 +365,7 @@ def main(argv=None):
    from csv_fallback import read_with_fallback
    register=lambda p:manifest.__setitem__(str(p),digest(p))
    for t in ('po','o','v','l'):read_with_fallback(v,args.po.resolve(),t,SCHEMAS[t][0],args.env,on_source=register)
-   for t in ('m','c'):read_with_fallback(v,args.pop.resolve(),t,SCHEMAS[t][0],args.env,on_source=register)
+   for t in ('m','c','ch'):read_with_fallback(v,args.pop.resolve(),t,SCHEMAS[t][0],args.env,on_source=register)
    read_with_fallback(v,args.meta.resolve(),'t',SCHEMAS['t'][0],args.env,on_source=register)
    if args.char_value:v.read_cv_files([p.resolve() for p in args.char_value])
    else:read_with_fallback(v,args.po.resolve(),'cv',SCHEMAS['cv'][0],args.env,on_source=register)
@@ -375,7 +375,7 @@ def main(argv=None):
   if any(digest(Path(p))!=sha for p,sha in manifest.items()):raise RuntimeError('Input changed during validation')
   LOG.info('Exporting Error-only Excel report')
   summary['report_rows_per_sheet']=args.report_rows_per_sheet
-  summary['error_report_rows']=export_report(v,out/f'Result_check_PO_POP_01-10_ErrorOnly_{stamp}.xlsx','ERROR',rows_per_sheet=args.report_rows_per_sheet)
+  summary['error_report_rows']=export_report(v,out/f'Result_check_PO_POP_01-11_ErrorOnly_{stamp}.xlsx','ERROR',rows_per_sheet=args.report_rows_per_sheet)
   if any(i['severity']!='ERROR' for i in v.issues):
    summary['review_report_rows']=export_report(v,out/f'Result_Review_Warning_{stamp}.xlsx','REVIEW',rows_per_sheet=args.report_rows_per_sheet)
   # Independent report serialization audit is mandatory (all cells, all sheets).

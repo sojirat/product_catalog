@@ -44,7 +44,7 @@ class Rule10Tests(unittest.TestCase):
                 self.row('po1'), self.row('unique')]
         self.v.read_cv_files([self.csv_file('PO_Char_Value.csv', rows)])
         self.assertEqual(len(self.check()), 4)
-        self.assertEqual(self.v.summary()['rules'][-1]['status'], 'FAIL')
+        self.assertEqual(self.v.summary()['rules'][9]['status'], 'FAIL')
         output = self.root / 'errors.xlsx'
         export_report(self.v, output, 'ERROR')
         workbook = load_workbook(output, read_only=True)
@@ -68,7 +68,7 @@ class Rule10Tests(unittest.TestCase):
             rows.append(self.row(**changes))
         self.v.read_cv_files([self.csv_file('unique.csv', rows)])
         self.assertEqual(self.check(), [])
-        self.assertEqual(self.v.summary()['rules'][-1]['status'], 'PASS')
+        self.assertEqual(self.v.summary()['rules'][9]['status'], 'PASS')
 
     def test_blank_values_are_ignored_and_exclusions_apply(self):
         rows = [self.row(val=''), self.row(val=''), self.row('excluded'), self.row('excluded'),
@@ -90,7 +90,7 @@ class Rule10Tests(unittest.TestCase):
     def test_only_blank_values_pass_rule10(self):
         self.v.read_cv_files([self.csv_file('empty.csv', [self.row(val=''), self.row(val='')])])
         self.assertEqual(self.check(), [])
-        self.assertEqual(self.v.summary()['rules'][-1]['status'], 'PASS')
+        self.assertEqual(self.v.summary()['rules'][9]['status'], 'PASS')
         self.assertEqual(self.v.coverage['10_checked_rows'], 0)
 
     def test_whitespace_is_a_value(self):
@@ -131,7 +131,7 @@ class Rule10Tests(unittest.TestCase):
             csv.writer(stream).writerow([h for h in SCHEMAS['cv'][1] if h != 'Char Value.valueType'])
         self.v.read_cv_files([path])
         self.check()
-        self.assertEqual(self.v.summary()['rules'][-1]['status'], 'INCOMPLETE')
+        self.assertEqual(self.v.summary()['rules'][9]['status'], 'INCOMPLETE')
 
 
 if __name__ == '__main__':

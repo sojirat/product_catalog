@@ -20,6 +20,7 @@ def resolve_export_input(value=None):
 
 # Table key: export subfolder, file prefix, raw workbook sheet name.
 EXPORT_FILES = {
+    'pv': ('Product Offer Price', 'productOfferPrice_', 'Product Offer Price'),
     'pt': ('Product Offer Price', 'productOfferPrice_', 'Product Offer Price'),
     'ch': ('Product Offer Price', 'pop_channel_', 'Channel'),
     'po': ('Product Offer', 'ProductOffer_', 'ProductOffer'),
@@ -58,17 +59,23 @@ def one_file(folder, pattern):
     return candidates[0].resolve()
 
 
-def discover_export_inputs(input_dir, char_values=None):
+def discover_export_inputs(input_dir, char_values=None, tables=None):
+    from validation_domain import SCHEMAS
+    tables = set(SCHEMAS) if tables is None else set(tables)
     root = input_dir.resolve()
     if not root.is_dir() and not (root.name.lower() == 'xlsx' and (root.parent / 'csv').is_dir()):
         raise NotADirectoryError(root)
     sources = {}
     for table, (folder, prefix, _) in EXPORT_FILES.items():
+        if table not in tables:
+            continue
         if list((root / folder).glob(prefix + '*.xlsx')):
             sources[table] = one_file(root / folder, prefix + '*.xlsx')
         else:
             sources[table] = one_file(root.parent / 'csv' / folder, prefix + '*.csv')
-    if char_values:
+    if 'cv' not in tables:
+        cv_paths = []
+    elif char_values:
         cv_paths = [path.resolve() for path in char_values]
     else:
         cv_xlsx = sorted((root / 'Product Offer').glob('PO_Char_Value_*.xlsx'))
@@ -88,9 +95,10 @@ def discover_export_inputs(input_dir, char_values=None):
 
 
 def read_export_inputs(validator, sources, cv_paths, env_path=None, on_source=None):
+    from validation_progress import batch_progress
     from csv_fallback import read_with_fallback
     env_path = env_path or Path(__file__).resolve().parent.parent / '.env'
-    for table, path in sources.items():
+    for number, (table, path) in enumerate(sources.items(), 1):
         if path.suffix.lower() == '.csv':
             if on_source:
                 on_source(path)
@@ -99,7 +107,11 @@ def read_export_inputs(validator, sources, cv_paths, env_path=None, on_source=No
             validator.ready.add(table)
         else:
             read_with_fallback(validator,path,table,EXPORT_FILES[table][2],env_path,on_source=on_source)
+        batch_progress('Export input tables', number, len(sources)+bool(cv_paths), interval=1)
+    if not cv_paths:
+        return
     if cv_paths[0].suffix.lower() == '.xlsx':
         read_with_fallback(validator,cv_paths[0],'cv','Char_Value',env_path,on_source=on_source)
     else:
         validator.read_cv_files(cv_paths)
+    batch_progress('Export input tables', len(sources)+1, len(sources)+1, interval=1)

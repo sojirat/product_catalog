@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PO/POP rules 1–11. Python 3.10+. Export or SQL Server input, exact comparisons, full scans.
+"""PO/POP rules 1–14. Python 3.10+. Export or SQL Server input, exact comparisons, full scans.
 
 Defaults to the latest project export. --database reads SQL Server using
 product_catalog/.env. Validation runs in Python memory.
@@ -28,6 +28,8 @@ from openpyxl.utils import get_column_letter
 from validation_domain import VERSION, UNIT, MODEL, MAIN, TYPE, BLANK, SCHEMAS, parse_pairs
 from validation_rules import RuleValidator
 from validation_domain import CV_DETAIL_FIELDS, CV_DETAIL_HEADERS
+from validation_domain import RULE_INPUTS
+from validation_progress import stage
 
 LOG = logging.getLogger("po_pop")
 
@@ -42,6 +44,7 @@ def digest(path):
 
 class Validator(RuleValidator):
  def read_xlsx(self, path, table, sheet_name=None):
+  LOG.info('Reading XLSX: %s / %s [%s]',path,sheet_name or SCHEMAS[table][0],table)
   base, required, fields = SCHEMAS[table]
   base = sheet_name or base
   wb = load_workbook(path, read_only=True, data_only=False)
@@ -67,7 +70,7 @@ class Validator(RuleValidator):
         if cell.value in required:
          locations.setdefault(cell.value, set()).add(ci)
       if any(len(locations.get(h,set())) != 1 for h in required):
-       raise ValueError('Header Meta ต้องมี POP ID และ matCode ที่ไม่กำกวมใน 5 แถวแรก')
+       raise ValueError('Header Meta ต้องมีคอลัมน์ที่ใช้ตรวจครบและไม่กำกวมใน 5 แถวแรก: '+', '.join(required))
       ix = [next(iter(locations[h])) for h in required]
       # Exact supported BM template: type row 4, cardinality row 5.
       card = prefix[4][ix[1]].value if len(prefix[4])>ix[1] else None
@@ -88,6 +91,8 @@ class Validator(RuleValidator):
        cell=row[col] if col<len(row) else None
        value=cell.value if cell is not None else None
        if value is None: value=''
+       if table == 'pv' and col == ix[2] and isinstance(value, (int, float)):
+        value=str(value)
        if (cell is not None and cell.data_type in ('f','e')) or not isinstance(value,str):
         self.input_error(table,'ค่าที่ใช้เปรียบเทียบเป็นสูตร/error/ไม่ใช่ Text จึงไม่แปลงค่าเอง',src=str(path),sheet=sh.title,rn=rn,related=f'Column {col+1}; value={value!r}')
         valid=False;ok=False
@@ -95,6 +100,7 @@ class Validator(RuleValidator):
       if valid: batch.append((str(path),sh.title,rn,*values))
       if len(batch)>=10000:
        self._insert(table,batch);batch=[]
+       LOG.info('Reading XLSX %s / %s: %s records',path.name,sh.title,count)
      self._insert(table,batch)
     except (ValueError,KeyError,TypeError) as e:
      ok=False; self.input_error(table,str(e),src=str(path),sheet=sh.title)
@@ -108,6 +114,7 @@ class Validator(RuleValidator):
  def read_cv_files(self, paths):
   ok=True;total=0
   for path in paths:
+   LOG.info('Reading Char_Value source: %s',path)
    try:
     if path.suffix.lower()=='.zip':
      with zipfile.ZipFile(path) as z:
@@ -203,7 +210,7 @@ def export_report(v, path, severity, verify=True, rows_per_sheet=DEFAULT_REPORT_
   if sheet is not None:
    sheet.auto_filter.ref=f'A1:{get_column_letter(len(header))}{rowcounts[sheet.title]}'
  LOG.info('Report %s: writing %s cases',path.name,len(selected))
- buckets={str(number):[] for number in range(1,12)}
+ buckets={str(number):[] for number in range(1,15)}
  if any(r['rule']=='INPUT' for r in selected):buckets={'INPUT':[],**buckets}
  for r in selected:
   buckets[r['rule'].split('.')[0]].append(r)
@@ -261,7 +268,7 @@ def export_report(v, path, severity, verify=True, rows_per_sheet=DEFAULT_REPORT_
     values=['' if c.value is None else c.value for c in row]
     if any(c.data_type=='f' for c in row):raise AssertionError('Unexpected formula in report')
     actual.update(json.dumps([s.title,values],ensure_ascii=False,separators=(',',':')).encode());count+=1
-    if count%10000==0:LOG.info('Report %s: %s verified %s/%s rows',path.name,s.title,count,rowcounts[s.title])
+    if count%10000==0:LOG.info('Report %s: %s verification %.1f%% (%s/%s rows)',path.name,s.title,count*100/rowcounts[s.title],count,rowcounts[s.title])
    if count!=rowcounts[s.title]:raise AssertionError('Report row count mismatch')
    LOG.info('Report %s: %s verification complete (%s rows)',path.name,s.title,count)
   rb.close()
@@ -294,9 +301,12 @@ def main(argv=None):
  ap.add_argument('--char-value',type=Path,nargs='+',help='CSV/ZIP หนึ่งหรือหลายไฟล์; ไม่ระบุจะใช้ Sheet Char_Value ใน PO')
  ap.add_argument('--config',type=Path,default=Path(__file__).with_name('config.json'))
  ap.add_argument('--out',type=Path,default=Path(__file__).resolve().parents[2]/'results')
+ ap.add_argument('--rules',type=int,nargs='+',choices=range(1,15),help='Rules to check, e.g. --rules 10 13 14; omitted: all rules')
  ap.add_argument('--report-rows-per-sheet',type=int,default=DEFAULT_REPORT_ROWS_PER_SHEET,
                  help='Maximum data rows per report sheet, excluding header (default: %(default)s)')
  args=ap.parse_args(argv)
+ selected_rules=sorted(set(args.rules)) if args.rules else list(range(1,15))
+ required_tables=set().union(*(RULE_INPUTS[number] for number in selected_rules))
  if not 1 <= args.report_rows_per_sheet <= EXCEL_MAX_DATA_ROWS:
   ap.error(f'--report-rows-per-sheet must be between 1 and {EXCEL_MAX_DATA_ROWS}')
  sources=None;cv_paths=None
@@ -321,7 +331,7 @@ def main(argv=None):
   if any((args.database,args.po,args.pop,args.meta,args.check_connection)):
    ap.error('--input-dir cannot be combined with --database, --check-connection, --po, --pop or --meta')
   from export_source import discover_export_inputs
-  try:sources,cv_paths=discover_export_inputs(args.input_dir,args.char_value)
+  try:sources,cv_paths=discover_export_inputs(args.input_dir,args.char_value,tables=required_tables)
   except (OSError,ValueError) as error:ap.error(str(error))
   if args.list_inputs:
    for table,path in sources.items():print(f'{table}: {path}')
@@ -347,44 +357,64 @@ def main(argv=None):
  out.mkdir(parents=True,exist_ok=bool(args.input_dir))
  logging.basicConfig(level=logging.INFO,format='%(asctime)s %(message)s',handlers=[logging.StreamHandler(),logging.FileHandler(out/'run.log',mode='w',encoding='utf-8')])
  try:
+  stage(0, 'Starting validation; percentages show stage completion, not estimated runtime')
   conf=config_read(args.config)
-  paths=list(dict.fromkeys(sources.values()))+cv_paths if sources else ([] if args.database else [args.po,args.pop,args.meta]+(args.char_value or []))
+  paths=list(dict.fromkeys(sources.values()))+cv_paths if args.input_dir else ([] if args.database else [args.po,args.pop,args.meta]+(args.char_value or []))
   if len({str(p.resolve()) for p in paths})!=len(paths):raise ValueError('ระบุ input path ซ้ำ')
   for p in paths:
    if not p.is_file():raise FileNotFoundError(p)
-  manifest={str(p.resolve()):digest(p) for p in paths}
+  stage(5, 'Hashing input files')
+  manifest={}
+  for number,p in enumerate(paths,1):
+   LOG.info('Hashing input %s/%s: %s',number,len(paths),p)
+   manifest[str(p.resolve())]=digest(p)
   (out/'config_used.json').write_text(json.dumps(conf,ensure_ascii=False,indent=2),encoding='utf-8')
   v=Validator(conf)
-  if sources:
+  stage(10, 'Reading input data')
+  LOG.info('Selected rules: %s', ', '.join(map(str,selected_rules)))
+  if args.input_dir:
    from export_source import read_export_inputs
    read_export_inputs(v,sources,cv_paths,args.env,on_source=lambda p:manifest.__setitem__(str(p),digest(p)))
   elif args.database:
    from database_source import read_database
-   read_database(v,args.env)
+   read_database(v,args.env,tables=required_tables)
   else:
    from csv_fallback import read_with_fallback
    register=lambda p:manifest.__setitem__(str(p),digest(p))
-   for t in ('po','o','v','l'):read_with_fallback(v,args.po.resolve(),t,SCHEMAS[t][0],args.env,on_source=register)
-   for t in ('m','c','ch','pt'):read_with_fallback(v,args.pop.resolve(),t,SCHEMAS[t][0],args.env,on_source=register)
-   read_with_fallback(v,args.meta.resolve(),'t',SCHEMAS['t'][0],args.env,on_source=register)
-   if args.char_value:v.read_cv_files([p.resolve() for p in args.char_value])
-   else:read_with_fallback(v,args.po.resolve(),'cv',SCHEMAS['cv'][0],args.env,on_source=register)
-  v.run()
+   for t in ('po','o','v','l'):
+    if t in required_tables:read_with_fallback(v,args.po.resolve(),t,SCHEMAS[t][0],args.env,on_source=register)
+   for t in ('m','c','ch','pt','pv'):
+    if t in required_tables:read_with_fallback(v,args.pop.resolve(),t,SCHEMAS[t][0],args.env,on_source=register)
+   if 't' in required_tables:read_with_fallback(v,args.meta.resolve(),'t',SCHEMAS['t'][0],args.env,on_source=register)
+   if 'cv' in required_tables:
+    if args.char_value:v.read_cv_files([p.resolve() for p in args.char_value])
+    else:read_with_fallback(v,args.po.resolve(),'cv',SCHEMAS['cv'][0],args.env,on_source=register)
+  from database_source import find_resource_spec_pairs, find_product_master, find_variant_masters
+  v.resource_spec_lookup=lambda pairs:find_resource_spec_pairs(args.env,pairs)
+  v.product_master_lookup=lambda codes:find_product_master(args.env,codes)
+  v.variant_master_lookup=lambda codes:find_variant_masters(args.env,codes)
+  stage(25, 'Input data loaded; starting rules')
+  v.run(selected_rules)
   summary=v.summary();summary['input_sha256']=manifest;summary['run_time_bangkok']=now.isoformat()
   # Ensure the sources did not change while being read.
+  stage(75, 'All rules finished; verifying source file hashes')
   if any(digest(Path(p))!=sha for p,sha in manifest.items()):raise RuntimeError('Input changed during validation')
   LOG.info('Exporting Error-only Excel report')
+  stage(80, 'Writing and verifying Error report')
   summary['report_rows_per_sheet']=args.report_rows_per_sheet
-  summary['error_report_rows']=export_report(v,out/f'Result_check_PO_POP_01-11_ErrorOnly_{stamp}.xlsx','ERROR',rows_per_sheet=args.report_rows_per_sheet)
+  summary['error_report_rows']=export_report(v,out/f'Result_check_PO_POP_01-14_ErrorOnly_{stamp}.xlsx','ERROR',rows_per_sheet=args.report_rows_per_sheet)
   if any(i['severity']!='ERROR' for i in v.issues):
+   stage(90, 'Writing and verifying Review/Warning report')
    summary['review_report_rows']=export_report(v,out/f'Result_Review_Warning_{stamp}.xlsx','REVIEW',rows_per_sheet=args.report_rows_per_sheet)
   # Independent report serialization audit is mandatory (all cells, all sheets).
+  stage(98, 'Writing validation summaries')
   summary['report_verification']='All written cells reopened and matched; no sampling'
   (out/'summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2),encoding='utf-8')
-  lines=['PO/POP validation '+stamp]
+  lines=['PO/POP validation '+stamp, 'Selected rules: '+', '.join(map(str,selected_rules))]
   for r in summary['rules']:lines.append(f"Rule {r['rule']}: {r['status']} | Errors={r['error_cases']} | Review={r['review_cases']} | Warning={r['warning_cases']}")
   lines+=['Input issues: '+str(summary['input_issues']),'Report: '+str(out.resolve()),'CSV source row = logical record, header = 1.']
   (out/'summary.txt').write_text('\n'.join(lines),encoding='utf-8');print('\n'.join(lines))
+  stage(100, 'Validation and report generation finished; see summary for rule results')
   if summary['input_issues'] or any(r['review_cases'] for r in summary['rules']):return 2
   return 1 if any(r['error_cases'] for r in summary['rules']) else 0
  except Exception as e:

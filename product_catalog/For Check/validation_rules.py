@@ -1,7 +1,12 @@
 """Exact PO/POP rules over source rows, with no local database."""
 from collections import Counter, defaultdict
+from decimal import Decimal, InvalidOperation
+from itertools import islice
+from time import monotonic
+from validation_progress import stage, batch_progress
 
 from validation_domain import SCHEMAS, UNIT, MODEL, MAIN, TYPE, VERSION, CV_DUPLICATE_KEY, parse_pairs
+from validation_domain import PRODUCT_CHAR_COLUMNS, char_key
 
 
 def group(rows, *fields):
@@ -20,6 +25,10 @@ class RuleValidator:
         self.coverage = {}
         self.inputs = []
         self.issues = []
+        self.resource_spec_lookup = None
+        self.product_master_lookup = None
+        self.variant_master_lookup = None
+        self.selected_rules = list(range(1,15))
         self.ex_po = set(config['exclude_po_ids'])
         self.ex_pop = set(config['exclude_pop_ids'])
 
@@ -82,10 +91,22 @@ class RuleValidator:
         owners = self.owner_po.get(pid, set())
         return next(iter(owners)) if len(owners) == 1 else None
 
-    def run(self):
+    def run(self, rules=None):
+        self.selected_rules = sorted(set(rules)) if rules is not None else list(range(1,15))
+        if not self.selected_rules or any(number not in range(1,15) for number in self.selected_rules):
+            raise ValueError('Select at least one rule between 1 and 14')
+        stage(25, 'Building validation indexes')
         self.indexes()
-        for number in range(1, 12):
+        total=len(self.selected_rules)
+        for position, number in enumerate(self.selected_rules,1):
+            stage(25 + (position-1)*50/total, f'Checking Rule {number}/14 (selected {position}/{total})')
+            started = monotonic()
+            first_issue = len(self.issues)
             getattr(self, f'rule{number}')()
+            counts = Counter(issue['severity'] for issue in islice(self.issues, first_issue, None))
+            stage(25 + position*50/total,
+                  f'Rule {number}/14 finished in {monotonic()-started:.1f}s; '
+                  f'Error={counts["ERROR"]}, Review={counts["REVIEW"]}, Warning={counts["WARNING"]}')
 
     def rule11(self):
         if not self.has(11, 'v'):
@@ -436,14 +457,188 @@ class RuleValidator:
         self.coverage['10_checked_rows'] = len(active)
         self.coverage['10_duplicate_rows'] = len(self.duplicate_cv_rows)
 
+    def rule12(self):
+        if not self.has(12, 'cv'):
+            return
+        candidates = [row for row in self.rows['cv']
+                      if row['po'] not in self.ex_po and '-rs_mg' in row['spec_id'] and row['val'] != '']
+        pairs = group(candidates, 'po', 'spec_id')
+        valid_pairs = {}
+        for po, rows in group(candidates, 'po').items():
+            specs = sorted({row['spec_id'] for row in rows})
+            if len(specs) > 1:
+                self.finding(12, 'MULTIPLE_RESOURCE_SPEC', rows[0], occurrences=len(rows),
+                             related='Product Spec IDs: ' + ', '.join(specs))
+            else:
+                valid_pairs[po, specs[0]] = pairs[po, specs[0]]
+        self.coverage['12_candidate_rows'] = len(candidates)
+        self.coverage['12_candidate_pairs'] = len(pairs)
+        self.coverage['12_checked_pairs'] = 0
+        if not valid_pairs:
+            return
+        if self.resource_spec_lookup is None:
+            self.add(12, 'REVIEW', 'RESOURCE_SPEC_LOOKUP_UNAVAILABLE',
+                     'ยังตรวจ Resource Specification ไม่ครบ เพราะไม่มีผล query จากฐานข้อมูล ให้ตรวจการเชื่อมต่อและสิทธิ์อ่าน View แล้วรันใหม่')
+            return
+        try:
+            found = self.resource_spec_lookup(sorted(valid_pairs))
+        except Exception as error:
+            self.add(12, 'REVIEW', 'RESOURCE_SPEC_LOOKUP_UNAVAILABLE',
+                     'ตรวจ Resource Specification ไม่สำเร็จ ให้ตรวจ .env การเชื่อมต่อและสิทธิ์อ่าน View แล้วรันใหม่',
+                     related='vw_catalog_offer_specification_characteristic; '+type(error).__name__)
+            return
+        self.coverage['12_checked_pairs'] = len(valid_pairs)
+        for pair, rows in valid_pairs.items():
+            if pair not in found:
+                self.finding(12, 'INVALID_RESOURCE_SPEC', rows[0], occurrences=len(rows),
+                             expected='พบ offer_id + specification_id ใน vw_catalog_offer_specification_characteristic',
+                             related='Product Spec ID: '+pair[1])
+
+    def rule13(self):
+        if not self.has(13, 't'):
+            return
+        active = [row for row in self.rows['t'] if row['pid'] not in self.ex_pop]
+        self.coverage['13_meta_rows'] = len(active)
+        self.coverage['13_checked_rows'] = 0
+        codes = sorted({row['sku'] for row in active if row['sku'] != ''})
+        for number, row in enumerate(active, 1):
+            batch_progress('Rule 13 Meta input scan', number, len(active), interval=10000)
+            if row['sku'] == '':
+                self.finding(13, 'META_MAT_CODE_EMPTY', row)
+        if not codes:
+            return
+        try:
+            if self.product_master_lookup is None:
+                raise RuntimeError('Product Master lookup is not configured')
+            masters = self.product_master_lookup(codes)
+        except Exception as error:
+            self.add(13, 'REVIEW', 'PRODUCT_MASTER_LOOKUP_UNAVAILABLE',
+                     'ตรวจ Product Master ไม่สำเร็จ ให้ตรวจ .env การเชื่อมต่อและสิทธิ์อ่าน PRODUCT_MST แล้วรันใหม่',
+                     related='PRODUCT_MST; '+type(error).__name__)
+            return
+        comparisons = [('commercial_name', 'commercialName', 'COMMERCIAL_NAME'),
+                       ('sap_eng', 'sapDescriptionEng', 'SAP_DESCRIPTION'),
+                       ('sap_tha', 'sapDescriptionTha', 'SAP_DESCRIPTION')]
+        for number, row in enumerate(active, 1):
+            batch_progress('Rule 13 Meta comparisons', number, len(active), interval=10000)
+            if row['sku'] == '':
+                continue
+            matches = masters[row['sku']]
+            if not matches:
+                self.finding(13, 'PRODUCT_MASTER_MISSING', row)
+            else:
+                self.coverage['13_checked_rows'] += 1
+                master = matches[0]
+                for field, label, column in comparisons:
+                    if field == 'commercial_name' and master['COMMERCIAL_NAME'] in (None, ''):
+                        column = 'SAP_DESCRIPTION'
+                    if row[field] != master[column]:
+                        self.finding(13, 'META_PRODUCT_MASTER_MISMATCH', row,
+                                     reason=f"matCode={row['sku']!r}: Meta POP.{label} = {row[field]!r} ไม่ตรงกับ PRODUCT_MST.{column} = {master[column]!r}",
+                                     name=label, val=row[field], expected=repr(master[column]),
+                                     related='PRODUCT_MST.'+column)
+
+    def rule14(self):
+        if not self.has(14, 'v', 'l', 'pv', 'c'):
+            return
+        variants = [row for row in self.rows['v'] if row['po'] not in self.ex_po]
+        links = group(self.rows['l'], 'vid')
+        prices = group(self.rows['pv'], 'pid')
+        chars = group(self.rows['c'], 'pid')
+        pending = []
+        self.coverage['14_checked_variants'] = 0
+        for row in variants:
+            def error(code, reason, **values):
+                self.finding(14, code, row, reason=reason, **values)
+            pairs, state = parse_pairs(row['cids'], row['vals'])
+            if state not in (None, 'BOTH_EMPTY'):
+                error('VARIANT_CHAR_LIST_INVALID', 'จับคู่ Char ของ Variant ตาม index ไม่ได้: '+state)
+                continue
+            pids = sorted({link['pid'] for link in links[row['vid']] if link['pid'] not in self.ex_pop})
+            if links[row['vid']] and not pids:
+                continue
+            missing = [pid for pid in pids if not prices[pid]]
+            if missing:
+                error('VARIANT_PRICE_POP_MISSING', 'ไม่พบ POP ที่ Variant อ้างอิงใน Product Offer Price', related=', '.join(missing))
+                continue
+            onetime = [price for pid in pids for price in prices[pid] if price['price_type'] == 'Onetime']
+            if len(onetime) != 1:
+                error('VARIANT_ONETIME_COUNT', f'Variant ต้องเชื่อมกับ POP priceType=Onetime หนึ่งแถว พบ {len(onetime)} แถว',
+                      related=', '.join(pids))
+                continue
+            pop = onetime[0]
+            char_list = defaultdict(set)
+            for name, value in pairs + [(char['name'], char['val']) for char in chars[pop['pid']]]:
+                if value != '':
+                    char_list[char_key(name)].add(value)
+            if row['sku'] == '':
+                error('VARIANT_MASTER_SKU_EMPTY', 'Variant มี SKU ว่าง จึงค้น PRODUCT_MST ไม่ได้', pid=pop['pid'])
+                continue
+            pending.append((row, pop, char_list))
+        if not pending:
+            return
+        try:
+            if self.variant_master_lookup is None:
+                raise RuntimeError('Variant master lookup is not configured')
+            masters = self.variant_master_lookup(sorted({row['sku'] for row, _, _ in pending}))
+        except Exception as exception:
+            self.add(14, 'REVIEW', 'VARIANT_MASTER_LOOKUP_UNAVAILABLE',
+                     'ตรวจ PRODUCT_MST / PRICE_MST ไม่สำเร็จ ให้ตรวจ .env และสิทธิ์อ่านตารางแล้วรันใหม่',
+                     related=type(exception).__name__)
+            return
+        for number, (row, pop, char_list) in enumerate(pending, 1):
+            batch_progress('Rule 14 Variant comparisons', number, len(pending), interval=1000)
+            def error(code, reason, **values):
+                self.finding(14, code, row, reason=reason, pid=pop['pid'], **values)
+            reference = masters[row['sku']]
+            products = reference['products']
+            if len(products) != 1:
+                error('VARIANT_PRODUCT_MASTER_COUNT', f'SKU={row["sku"]!r}: PRODUCT_MST ต้องมีหนึ่งแถว พบ {len(products)} แถว')
+                continue
+            master = products[0]
+            self.coverage['14_checked_variants'] += 1
+            for column in PRODUCT_CHAR_COLUMNS:
+                actual = char_list[char_key(column)]
+                expected = set() if master[column] in (None, '') else {master[column]}
+                if actual != expected:
+                    error('VARIANT_MASTER_CHAR_MISMATCH',
+                          f'Char {column}: Char List={sorted(actual)!r} ไม่ตรงกับ PRODUCT_MST.{column}={master[column]!r}',
+                          name=column, val=repr(sorted(actual)), expected=repr(master[column]),
+                          related='PRODUCT_ID='+str(master['PRODUCT_ID']))
+            groups = char_list[char_key('price_group')]
+            if len(groups) != 1:
+                error('VARIANT_PRICE_GROUP_COUNT', f'Char List ต้องมี price_group หนึ่งค่า พบ {sorted(groups)!r}')
+                continue
+            price_group = next(iter(groups))
+            matching = [price for price in reference['prices'] if price['PRICE_GROUP'] == price_group]
+            if not matching:
+                error('VARIANT_PRICE_MASTER_MISSING', f'ไม่พบ PRICE_MST ของ PRODUCT_ID={master["PRODUCT_ID"]!r} และ PRICE_GROUP={price_group!r}')
+                continue
+            if len(matching) > 1:
+                error('VARIANT_PRICE_MASTER_MULTIPLE', f'พบ PRICE_MST มากกว่าหนึ่งแถวสำหรับ PRODUCT_ID={master["PRODUCT_ID"]!r}, PRICE_GROUP={price_group!r}', severity='REVIEW')
+                continue
+            inc_vat = matching[0]['INC_VAT']
+            try:
+                actual_price, expected_price = Decimal(str(pop['price_value'])), Decimal(str(inc_vat))
+                if not actual_price.is_finite() or not expected_price.is_finite():
+                    raise InvalidOperation
+            except (InvalidOperation, ValueError):
+                error('VARIANT_PRICE_INVALID', f'ราคาไม่ใช่ตัวเลขที่เปรียบเทียบได้: price_value={pop["price_value"]!r}, INC_VAT={inc_vat!r}')
+                continue
+            if actual_price != expected_price:
+                error('VARIANT_PRICE_MISMATCH', f'POP.price_value={pop["price_value"]!r} ไม่ตรงกับ PRICE_MST.INC_VAT={inc_vat!r} ของ PRICE_GROUP={price_group!r}',
+                      val=pop['price_value'], expected=str(inc_vat), related='PRODUCT_ID='+str(master['PRODUCT_ID']))
+
     def summary(self):
         rules = []
-        for number in range(1, 12):
+        for number in self.selected_rules:
             counts = Counter(i['severity'] for i in self.issues if i['rule'].split('.')[0] == str(number))
             errors, review = counts['ERROR'], counts['REVIEW']
             rules.append(dict(rule=number, status='FAIL' if errors else 'INCOMPLETE' if review else 'PASS',
                               error_cases=errors, review_cases=review, warning_cases=counts['WARNING'], complete=review == 0))
-        return dict(version=VERSION, rules=rules, input_issues=sum(i['rule'] == 'INPUT' for i in self.issues),
+        return dict(version=VERSION, rules=rules, selected_rules=self.selected_rules,
+                    skipped_rules=sorted(set(range(1,15))-set(self.selected_rules)),
+                    input_issues=sum(i['rule'] == 'INPUT' for i in self.issues),
                     inputs=self.inputs, coverage=self.coverage, source_counts={t: len(r) for t, r in self.rows.items()},
                     cv_blank_value_records=sum(r['val'] == '' for r in self.rows['cv']),
                     exclude_config={'po': len(self.ex_po), 'pop': len(self.ex_pop)},
@@ -455,6 +650,11 @@ class RuleValidator:
 
 
 REASONS = {
+ 'META_MAT_CODE_EMPTY': 'Meta POP มี matCode ว่าง จึงค้น PRODUCT_MST ด้วย MAT_CODE ไม่ได้',
+ 'PRODUCT_MASTER_MISSING': 'ไม่พบ matCode ของ Meta POP ใน PRODUCT_MST.MAT_CODE',
+ 'META_PRODUCT_MASTER_MISMATCH': 'ข้อมูล Meta POP ไม่ตรงกับ Product Master ให้เทียบคอลัมน์ใน Char Name กับคอลัมน์ PRODUCT_MST ใน Related Evidence โดย value คือค่าจาก Meta และ Expected Condition คือค่าจาก Product Master',
+ 'INVALID_RESOURCE_SPEC': 'Resource Specification ที่เลือกไม่ถูกต้อง ไม่พบคู่ Product Offer ID และ Product Spec ID ใน View vw_catalog_offer_specification_characteristic',
+ 'MULTIPLE_RESOURCE_SPEC': 'Product Offer ID เดียวมี Resource Specification ที่มี value มากกว่าหนึ่ง ID จึงเลือก Resource Specification เดียวเพื่อตรวจต่อไม่ได้',
  'DUPLICATE_CV': 'พบแถวซ้ำภายใน Product Offer ID เดียวกัน โดย Characteristics ID + Characteristics Name + valueType + value ตรงกันครบ ให้ตรวจทุกแถวในชีต Char duplicate detail',
  'MISSING_META': 'พบ POP ID นี้ในรายการหลัก Product Offer Price แต่ไม่พบ POP ID เดียวกันใน POP_metaExt_productInfo ให้ตรวจว่าข้อมูล Meta ของ POP นี้ตกหล่นหรือระบุ ID ต่างกัน',
  'SKU_NOT_FOUND': 'พบ Variant นี้ใน Product Variants แต่ไม่พบ matCode ที่ตรงกับ SKU ของ Variant ใน POP_metaExt_productInfo ให้ค้น SKU จากคอลัมน์ SKU / matCode ในข้อมูล Meta',

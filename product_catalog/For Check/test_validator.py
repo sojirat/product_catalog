@@ -15,6 +15,7 @@ class Tests(unittest.TestCase):
  def setUp(self):
   self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name);self.v=Validator(CONFIG)
   self.v.ready.update(SCHEMAS)
+  self.v.product_master_lookup=lambda codes:{code:[{'COMMERCIAL_NAME':'Name','SAP_DESCRIPTION':'Description'}] for code in codes}
   self.ins('po',('po1',));self.ins('m',('p1',));self.ins('o',('po1','p1'))
   self.ins('v',('po1','v1','color','BLACK','001'));self.ins('l',('v1','p1'));self.ins('t',('p1','001'))
   for cid,name,val in [(UNIT,'unit','piece'),(MODEL,'model','widget'),(MAIN,'mainModel','DeviceModel')]:
@@ -25,6 +26,7 @@ class Tests(unittest.TestCase):
 
  def ins(self,t,values):
   if t == 'cv':values = (*values, '', '', 'string', '')
+  if t == 't':values = (*values, 'Name', 'Description', 'Description')
   rn=len(self.v.rows[t])+2
   self.v._insert(t,[('fixture.xlsx',SCHEMAS[t][0],rn,*values)])
 
@@ -39,6 +41,13 @@ class Tests(unittest.TestCase):
  def cases(self,code):return [i for i in self.v.issues if i['code']==code]
 
  def test_full_pass(self):
+  from validation_domain import PRODUCT_CHAR_COLUMNS
+  self.ins('pv',('p1','Onetime','100'))
+  self.ins('c',('p1','price_group-id','price_group','EUP'))
+  self.ins('cv',('po1','price_group-id','price_group','EUP'))
+  master=dict.fromkeys(PRODUCT_CHAR_COLUMNS)
+  master.update(PRODUCT_ID='master1',COLOR='BLACK',MAIN_MODEL='DeviceModel',MODEL='widget')
+  self.v.variant_master_lookup=lambda codes:{code:{'products':[master],'prices':[{'PRICE_GROUP':'EUP','INC_VAT':'100.00'}]} for code in codes}
   self.run_checks();self.assertTrue(all(r['status']=='PASS' for r in self.v.summary()['rules']))
  def test_comma_alignment(self):
   self.assertEqual(parse_pairs('company,dummy,group','AWN,z12,EUP')[0],[('company','AWN'),('dummy','z12'),('group','EUP')])

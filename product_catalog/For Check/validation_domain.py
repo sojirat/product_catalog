@@ -9,6 +9,7 @@ TYPE = 'product_type-mh_mg00162'
 BLANK = (None, '')
 
 SCHEMAS = {
+ 'pv': ('Product Offer Price', ['Product Offer Price ID', 'priceType', 'price_value'], ['pid', 'price_type', 'price_value']),
  'pt': ('Product Offer Price', ['Product Offer Price ID', 'priceType'], ['pid', 'price_type']),
  'ch': ('Channel', ['POP_ID', 'ProductOfferPrice.Channel'], ['pid', 'channel']),
  'po': ('ProductOffer', ['Product Id'], ['po']),
@@ -17,11 +18,24 @@ SCHEMAS = {
  'v': ('Product_Variants', ['Product Variants.Product Id','Product Variants.variantId','Product Variants.specCharacteristics','Product Variants.value','Product Variants.sku'], ['po','vid','cids','vals','sku']),
  'l': ('Variant_ProductOffering_Price', ['variantProductOfferingPrice.variantId','variantProductOfferingPrice.productOfferingPrice'], ['vid','pid']),
  'c': ('Characteristics for Price', ['Product Offer Price ID','Characteristics ID','Char Name','value'], ['pid','cid','name','val']),
- 't': ('POP_metaExt_productInfo', ['Product Offer Price ID','matCode'], ['pid','sku']),
+ 't': ('POP_metaExt_productInfo', ['Product Offer Price ID','matCode','commercialName','sapDescriptionEng','sapDescriptionTha'], ['pid','sku','commercial_name','sap_eng','sap_tha']),
  'cv': ('Char_Value', ['Char Value.Product Offer ID','Char Value.Product Offer Characteristics ID','Char Value.Product Offer Characteristics Name','Char Value.value','Char Value.Product Spec ID','Char Value.Product Spec Name','Char Value.valueType','Char Value.isDefault'], ['po','cid','name','val','spec_id','spec_name','value_type','is_default']),
 }
 
 CV_DUPLICATE_KEY = ('po', 'cid', 'name', 'value_type', 'val')
+RULE_INPUTS = {
+    1: {'m','t'}, 2: {'v','l','t'}, 3: {'t','l','v'}, 4: {'c'},
+    5: {'m','c'}, 6: {'m','c','l','v'}, 7: {'m','c','l','v','cv'}, 8: {'m','o','c','cv'},
+    9: {'po','m','o','v','l','c','cv'}, 10: {'cv'}, 11: {'v','l','pt','ch'},
+    12: {'cv'}, 13: {'t'}, 14: {'v','l','pv','c'},
+}
+PRODUCT_CHAR_COLUMNS = ('MAIN_MODEL', 'BRAND', 'COMPANY', 'COLOR', 'CAPACITY', 'PRODUCT_TYPE',
+                        'PRODUCT_SUBTYPE', 'MAT_TYPE', 'MODEL', 'UNIT_NAME')
+
+
+def char_key(name):
+    return name.split('-mh_mg', 1)[0].replace('_', '').lower()
+
 CV_DETAIL_FIELDS = ('po', 'spec_id', 'spec_name', 'cid', 'name', 'value_type', 'val', 'is_default')
 CV_DETAIL_HEADERS = [SCHEMAS['cv'][1][SCHEMAS['cv'][2].index(field)] for field in CV_DETAIL_FIELDS]
 

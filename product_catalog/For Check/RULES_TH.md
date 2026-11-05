@@ -21,6 +21,9 @@
 | 9.6 | เทียบคู่ข้อมูลทั้งระดับ Variant และ POP ที่เชื่อมกัน | ID + value เดียวกันซ้ำทั้งสองระดับ |
 | 10 | ตรวจแถวซ้ำใน Char_Value ภายใต้ Product Offer ID เดียวกัน | Characteristics ID + Characteristics Name + valueType + value ตรงกันมากกว่าหนึ่งแถว |
 | 11 | price_group ของ Variant ต้องตรงกับ Channel ของ POP | ไม่มี link, กลุ่มหลาย POP มี priceType ผิดรูปแบบ, Channel ไม่ครบหนึ่งแถว หรือ price_group ไม่ตรง Channel |
+| 12 | Resource Specification ที่มี value ของ PO ต้องพบใน View ตามคู่ offer_id + specification_id | PO เดียวเลือกหลาย Resource Specification หรือไม่พบคู่ใน View |
+| 13 | เทียบ Meta POP กับ PRODUCT_MST ตาม matCode = MAT_CODE | matCode ว่าง, ไม่พบ MAT_CODE หรือชื่อไม่ตรง Product Master |
+| 14 | รวม Char จาก Variant และ Onetime POP เทียบ Product Master และ Price Master | Char ไม่ตรง, Onetime POP หรือ PRODUCT_MST ไม่ครบหนึ่งแถว หรือราคาไม่ตรง |
 
 ## ข้อ 2 และ 3
 
@@ -118,6 +121,71 @@ Error Report มีชีต `Rule 10` สำหรับรายละเอ�
 หากไม่พบไฟล์ XLSX ให้ค้น CSV ชื่อเดียวกันในโฟลเดอร์ `csv` ของรอบ export เดียวกัน ทุกชีตใช้เงื่อนไขนี้ รวมถึง Product_Variants, Variant_ProductOffering_Price และ Channel หากพบ XLSX แต่อ่านหรือหาชีตไม่สำเร็จ ให้ใช้ CSV fallback ผ่าน mapping เดิม หากไม่พบทั้ง XLSX และ CSV ให้หยุดพร้อมแจ้งข้อผิดพลาด
 โหมดไฟล์รวมอ่านชีต Channel จากไฟล์ `--pop` และโหมดฐานข้อมูลอ่านผ่าน template mapping
 ผลตรวจอยู่ในชีต `Rule 11` ของรายงาน และแสดงใน summary เช่นเดียวกับข้ออื่น
+
+## ข้อ 12 ตรวจสอบการเลือกใช้ Resource Specification ของ PO
+
+อ่าน `Char_Value` จาก Product Offer หรือ CSV `PO_Char_Value` ผ่าน fallback เดิม แล้วตรวจตามลำดับ:
+
+1. ข้าม PO ใน `exclude_po_ids` เลือกเฉพาะแถวที่ `Char Value.Product Spec ID` มีข้อความ `-rs_mg` และ `Char Value.value` ไม่ว่าง ไม่ trim ค่าและไม่แปลง whitespace ให้เป็นค่าว่าง
+2. จัดกลุ่มตาม `Char Value.Product Offer ID` แถวที่เหลือของ PO เดียวกันต้องมี Product Spec ID เดียวกัน หากพบหลาย ID ให้แจ้ง Error `MULTIPLE_RESOURCE_SPEC` พร้อมรายการ ID ที่พบ
+3. ใช้คู่ Product Offer ID + Product Spec ID ไม่ซ้ำ ไป query View `vw_catalog_offer_specification_characteristic` ใน schema จาก `.env` โดยเทียบ `offer_id` และ `specification_id` ด้วย SQL parameters ตรวจแต่ละคู่ครั้งเดียว แม้มี Characteristic หลายแถว
+4. หากไม่พบคู่ ให้แจ้ง Error `INVALID_RESOURCE_SPEC` ว่า `Resource Specification ที่เลือกไม่ถูกต้อง` หนึ่งรายการต่อคู่ พร้อม PO ID, Product Spec ID ใน Related Evidence, แถวต้นทางตัวอย่าง และจำนวนแถวต้นทางใน Source Occurrence Count หากพบถือว่าผ่าน
+
+ใช้ฐานข้อมูลจาก `--env` หรือ `product_catalog/.env` ทั้งโหมด export ไฟล์รวม และโหมดฐานข้อมูล
+หากไม่มีคู่ที่ต้องตรวจ ไม่เชื่อมฐานข้อมูล หาก query หรือเชื่อมต่อไม่สำเร็จให้เป็น Review และ `complete=false` ไม่สรุปว่าเลือก Resource Specification ผิด
+ผลอยู่ในชีต `Rule 12` ของ Error หรือ Review/Warning ตามระดับปัญหา เฉพาะเมื่อมีรายการ และแสดงผลใน summary เช่นเดียวกับข้ออื่น
+
+## ข้อ 13 ตรวจสอบ Meta POP เทียบกับ Product Master
+
+อ่าน Meta Extension POP ชีต `POP_metaExt_productInfo` หรือชีต raw export `metaExtension POP` ตามรูปแบบเดิม
+สำหรับ Excel ใช้ข้อมูลตั้งแต่แถว 6 เป็นต้นไป โดยค้นคอลัมน์จากหัวตารางในห้าแถวแรก ส่วน CSV ใช้ข้อมูลถัดจากหัวตาราง ไม่ข้ามห้าแถวข้อมูล
+ต้องมีคอลัมน์ `Product Offer Price ID`, `matCode`, `commercialName`, `sapDescriptionEng`, `sapDescriptionTha`
+
+ข้าม POP ใน `exclude_pop_ids` แล้วนำ matCode ไม่ซ้ำไป query `PRODUCT_MST` ใน schema จาก `.env` ด้วย SQL parameter `MAT_CODE = matCode` หนึ่งครั้งต่อรหัส และตรวจทุกแถว Meta ที่ใช้รหัสนั้น:
+
+- `COMMERCIAL_NAME` ต้องตรงกับ `commercialName` หาก `COMMERCIAL_NAME` เป็น NULL หรือข้อความว่าง ให้ใช้ `SAP_DESCRIPTION` เทียบกับ `commercialName` แทน โดย Reason และ Related Evidence ระบุคอลัมน์ที่ใช้เทียบจริง ข้อความที่มีเฉพาะช่องว่างยังถือว่ามีค่าตามกฎไม่ trim
+- `SAP_DESCRIPTION` ต้องตรงกับ `sapDescriptionEng`
+- `SAP_DESCRIPTION` ต้องตรงกับ `sapDescriptionTha`
+
+ทั้งชื่อภาษาอังกฤษและภาษาไทยเทียบกับ `SAP_DESCRIPTION` คอลัมน์เดียวกันตามกฎที่กำหนด
+เปรียบเทียบข้อความตรงตัว แยกตัวพิมพ์ใหญ่เล็ก ไม่ trim ค่า และไม่ข้ามชื่อที่ว่าง ค่า NULL จากฐานข้อมูลไม่เท่ากับข้อความว่าง
+matCode ว่างหรือไม่พบ MAT_CODE เป็น Error หากพบหลายแถวใน PRODUCT_MST ให้เลือกแถวล่าสุดเพียงแถวเดียวด้วย `TOP (1)` และเรียง `COALESCE(system_updated_at, system_created_at) DESC, system_created_at DESC, PRODUCT_ID DESC` โดยใช้เวลาอัปเดตล่าสุด หากไม่มีให้ใช้เวลาสร้าง และใช้ PRODUCT_ID ตัดสินเมื่อเวลาเท่ากัน ไม่แจ้ง Review เพียงเพราะมี MAT_CODE ซ้ำ
+เมื่อค่าต่างกัน แจ้ง Error แยกตามช่องในชีต `Rule 13` พร้อม POP ID, matCode, แถวต้นทาง, ชื่อช่อง, ค่าจาก Meta และค่าที่คาดหวังจาก Product Master
+ช่อง Reason ระบุ matCode และค่าที่เทียบกันโดยตรง เช่น `matCode='001': Meta POP.commercialName = 'Phone' ไม่ตรงกับ PRODUCT_MST.COMMERCIAL_NAME = 'Phone 128GB'` โดยใช้เครื่องหมายคำพูดครอบข้อความเพื่อให้เห็นค่าว่างและช่องว่าง และแสดงค่า NULL จากฐานข้อมูลเป็น `None`
+หากเชื่อมต่อหรือ query ไม่สำเร็จ ให้เป็น Review และ `complete=false` ไม่สรุปว่าข้อมูล Meta ผิด
+รองรับ XLSX และ CSV fallback เดียวกับกฎอื่น ใช้ `product_catalog/.env` หรือ `--env` ทั้งโหมด export ไฟล์รวม และฐานข้อมูล
+
+## ข้อ 14 ตรวจสอบ Char จาก Variant เทียบกับ Product Master และ Price Master
+
+1. อ่าน `Product_Variants` จับคู่ `Product Variants.specCharacteristics` กับ `Product Variants.value` ตาม index ของสมาชิกที่แยกด้วย comma หากจำนวนไม่เท่ากันหรือมีสมาชิกว่าง ให้แจ้ง Error
+2. ตาม variantId ไปที่ `Variant_ProductOffering_Price` แล้วนำ POP ID ทั้งหมดไปค้นชีต `Product Offer Price` เลือกแถว `priceType = Onetime` ต้องได้หนึ่งแถว ถ้าไม่มีหรือมากกว่าหนึ่งแถว ให้แจ้ง Error และเก็บ `price_value` ของแถวนั้น
+3. รวมคู่ `Char Name` + `value` จาก `Characteristics for Price` ของ Onetime POP เข้า Char List ของ Variant
+4. ค้น `PRODUCT_MST` ด้วย `Product Variants.sku = MAT_CODE` ต้องพบหนึ่งแถว หากไม่มีหรือมากกว่าหนึ่งแถวให้แจ้ง Error กฎข้อนี้ไม่ใช้การเลือกแถวล่าสุดแบบข้อ 13
+5. เทียบ Char กับคอลัมน์ต่อไปนี้:
+
+| PRODUCT_MST | Char |
+|---|---|
+| MAIN_MODEL | main_model / mainModel |
+| BRAND | brand |
+| COMPANY | company |
+| COLOR | color |
+| CAPACITY | capacity |
+| PRODUCT_TYPE | productType / product_type |
+| PRODUCT_SUBTYPE | productSubType / product_sub_type / product_subtype |
+| MAT_TYPE | matType / mat_type |
+| MODEL | model |
+| UNIT_NAME | unitName / unit_name |
+
+ชื่อ Char ตัด suffix `-mh_mg...` แล้วไม่แยกตัวพิมพ์ใหญ่เล็กและไม่สนใจ `_` เพื่อรองรับ camelCase และ snake_case ส่วนค่าต้องตรงตัว ไม่ trim
+ข้าม Char ที่ value ว่าง ค่า NULL หรือข้อความว่างในฐานข้อมูลหมายถึงต้องไม่มี Char ที่มีค่า หากฐานข้อมูลมีค่าต้องมี Char ค่านั้น และห้ามมีค่าอื่นร่วมด้วย ไม่ใช้ค่าจากระดับใดเขียนทับอีกระดับ
+คู่ Char ที่ซ้ำแต่ค่าเดียวกันนับเป็นค่าเดียว ส่วนชื่ออื่นนอกตารางไม่ถูกเทียบกับ PRODUCT_MST
+
+6. ใช้ PRODUCT_ID เชื่อม PRICE_MST และใช้ price_group จาก Char List เทียบ PRICE_GROUP แบบตรงตัว ต้องมี price_group หนึ่งค่า หากไม่พบกลุ่มราคาให้แจ้ง Error ถ้าพบ PRICE_MST มากกว่าหนึ่งแถวให้เป็น Review เพราะยังไม่มีเกณฑ์เลือกแถวราคา
+7. เทียบ INC_VAT กับ price_value ด้วย Decimal โดย `100` เท่ากับ `100.00` หากค่าไม่ใช่ตัวเลขหรือราคาไม่ตรงให้แจ้ง Error
+
+ใช้รายการยกเว้น PO/POP ตาม config และ XLSX/CSV fallback เดิม ไฟล์ Product Offer Price ต้องมี price_value โดยรองรับเซลล์ตัวเลขสำหรับคอลัมน์นี้
+ใช้ฐานข้อมูลจาก `.env` หรือ `--env` หากเชื่อมต่อหรือ query ไม่สำเร็จ ให้เป็น Review และ complete=false
+ผลอยู่ในชีต `Rule 14` พร้อม Variant ID, SKU, POP ID, ชื่อ Char, ค่าที่พบและค่าอ้างอิง เฉพาะเมื่อมีปัญหา
 
 ## สรุปความครบถ้วน
 

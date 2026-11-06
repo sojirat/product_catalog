@@ -45,6 +45,8 @@ class Tests(unittest.TestCase):
   self.ins('pv',('p1','Onetime','100'))
   self.ins('c',('p1','price_group-id','price_group','EUP'))
   self.ins('cv',('po1','price_group-id','price_group','EUP'))
+  self.ins('c',('p1','widget-id','widget','widget'))
+  self.ins('cv',('po1','widget-id','widget','widget'))
   master=dict.fromkeys(PRODUCT_CHAR_COLUMNS)
   master.update(PRODUCT_ID='master1',COLOR='BLACK',MAIN_MODEL='DeviceModel',MODEL='widget')
   self.v.variant_master_lookup=lambda codes:{code:{'products':[master],'prices':[{'PRICE_GROUP':'EUP','INC_VAT':'100.00'}]} for code in codes}

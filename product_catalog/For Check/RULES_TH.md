@@ -169,16 +169,21 @@ matCode ว่างหรือไม่พบ MAT_CODE เป็น Error ห�
 | BRAND | brand |
 | COMPANY | company |
 | COLOR | color |
-| CAPACITY | capacity |
+| CAPACITY | storage_capacity / storageCapacity |
 | PRODUCT_TYPE | productType / product_type |
 | PRODUCT_SUBTYPE | productSubType / product_sub_type / product_subtype |
 | MAT_TYPE | matType / mat_type |
-| MODEL | model |
+| MODEL | ใช้ value ของ model เป็นชื่อ Char ปลายทาง แล้วนำ value ของ Char ปลายทางมาเทียบ |
 | UNIT_NAME | unitName / unit_name |
 
 ชื่อ Char ตัด suffix `-mh_mg...` แล้วไม่แยกตัวพิมพ์ใหญ่เล็กและไม่สนใจ `_` เพื่อรองรับ camelCase และ snake_case ส่วนค่าต้องตรงตัว ไม่ trim
 ข้าม Char ที่ value ว่าง ค่า NULL หรือข้อความว่างในฐานข้อมูลหมายถึงต้องไม่มี Char ที่มีค่า หากฐานข้อมูลมีค่าต้องมี Char ค่านั้น และห้ามมีค่าอื่นร่วมด้วย ไม่ใช้ค่าจากระดับใดเขียนทับอีกระดับ
 คู่ Char ที่ซ้ำแต่ค่าเดียวกันนับเป็นค่าเดียว ส่วนชื่ออื่นนอกตารางไม่ถูกเทียบกับ PRODUCT_MST
+
+สำหรับ MODEL เช่น `model = appleIpadAir11SeriesHandset` และ `apple_ipad_air11_series_handset = AIR11M3WF_128GB` จะนำ `AIR11M3WF_128GB` เทียบกับ `PRODUCT_MST.MODEL` โดยชื่อ Char ปลายทางรองรับ camelCase/snake_case ผ่านกฎแปลงชื่อเดียวกัน ค่าที่นำมาเทียบยังเป็นแบบตรงตัว
+หากไม่พบ Char ปลายทางหลังเทียบชื่อแบบ camelCase/snake_case หรือ Char ปลายทางไม่มีค่า ให้ถือว่าไม่มีค่า MODEL กรณีนี้ PRODUCT_MST.MODEL ต้องเป็น NULL หรือข้อความว่างจึงผ่าน หากฐานข้อมูลมีค่าให้แจ้ง Error พร้อมข้อความว่าต้องไม่มีค่า MODEL
+หาก model ชี้หลายชื่อ หรือชี้กลับมาที่ model เอง ให้แจ้ง Error ไม่ใช้ชื่อที่ model ชี้ไปเทียบกับฐานข้อมูลโดยตรง รายละเอียด Error ระบุเส้นทาง `model -> ชื่อ Char ปลายทาง` พร้อมค่าที่เทียบ
+CAPACITY ใช้ storage_capacity/storageCapacity เท่านั้น ไม่ใช้ Char ชื่อ capacity แทน
 
 6. ใช้ PRODUCT_ID เชื่อม PRICE_MST และใช้ price_group จาก Char List เทียบ PRICE_GROUP แบบตรงตัว ต้องมี price_group หนึ่งค่า หากไม่พบกลุ่มราคาให้แจ้ง Error ถ้าพบ PRICE_MST มากกว่าหนึ่งแถวให้เป็น Review เพราะยังไม่มีเกณฑ์เลือกแถวราคา
 7. เทียบ INC_VAT กับ price_value ด้วย Decimal โดย `100` เท่ากับ `100.00` หากค่าไม่ใช่ตัวเลขหรือราคาไม่ตรงให้แจ้ง Error

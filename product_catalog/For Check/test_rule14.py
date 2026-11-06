@@ -37,8 +37,8 @@ class Rule14Tests(unittest.TestCase):
         self.lookup.assert_called_once_with(['001'])
 
     def test_aliases_for_all_mapped_columns(self):
-        self.v.rows['v'][0].update(cids='mainModel,brand,company,color,capacity,productType,product_sub_type,matType,model,unit_name,priceGroup',
-                                         vals='main,ABLEMEN,AWN,STARLIGHT,128,DEVICE,SMARTPHONE,NORM,model,piece,EUP')
+        self.v.rows['v'][0].update(cids='mainModel,brand,company,color,storageCapacity,productType,product_sub_type,matType,model,unit_name,priceGroup,device_family',
+                                         vals='main,ABLEMEN,AWN,STARLIGHT,128,DEVICE,SMARTPHONE,NORM,deviceFamily,piece,EUP,model')
         self.master.update(MAIN_MODEL='main',CAPACITY='128',PRODUCT_TYPE='DEVICE',PRODUCT_SUBTYPE='SMARTPHONE',MAT_TYPE='NORM',MODEL='model',UNIT_NAME='piece')
         self.assertEqual(self.check(),[])
 
@@ -56,6 +56,66 @@ class Rule14Tests(unittest.TestCase):
                 self.assertEqual(wb.sheetnames,['Rule 14 (Errors 2)','Rule 14 2 (Errors 2)'])
             finally:
                 wb.close()
+
+    def test_storage_capacity_aliases_and_old_capacity_is_not_used(self):
+        self.master['CAPACITY']='128GB'
+        for name in ['storage_capacity','storageCapacity','storage_capacity-mh_mg001']:
+            with self.subTest(name=name):
+                self.v.rows['c']=self.v.rows['c'][:1]
+                self.v.issues.clear()
+                self.insert('c','pop1','storage-id',name,'128GB')
+                self.assertEqual(self.check(),[])
+        self.v.rows['c']=self.v.rows['c'][:1]
+        self.v.issues.clear()
+        self.insert('c','pop1','capacity-id','capacity','128GB')
+        self.assertEqual(self.check()[0]['name'],'CAPACITY')
+
+    def test_model_resolves_reference_across_variant_and_pop(self):
+        self.master['MODEL']='AIR11M3WF_128GB'
+        variant=self.v.rows['v'][0]
+        variant['cids']+=',model-mh_mg00556'
+        variant['vals']+=',appleIpadAir11SeriesHandset'
+        self.insert('c','pop1','model-value-id','apple_ipad_air11_series_handset','AIR11M3WF_128GB')
+        self.assertEqual(self.check(),[])
+        self.v.rows['c'][-1]['val']='OTHER'
+        self.assertEqual(self.check()[0]['val'],repr(['OTHER']))
+        self.assertIn('model -> appleIpadAir11SeriesHandset',self.v.issues[0]['reason'])
+        self.assertIn('AIR11M3WF_128GB',self.v.issues[0]['reason'])
+
+    def test_model_missing_target_and_ambiguous_reference_are_errors(self):
+        self.master['MODEL']='family'
+        self.insert('c','pop1','model-id','model','family')
+        self.assertEqual(self.check()[0]['code'],'VARIANT_MASTER_CHAR_MISMATCH')
+        self.assertEqual(self.v.issues[0]['val'],repr([]))
+        self.assertIn('จึงต้องไม่มีค่า MODEL',self.v.issues[0]['reason'])
+        self.v.issues.clear()
+        self.insert('c','pop1','model2-id','model','otherFamily')
+        self.assertEqual(self.check()[0]['code'],'VARIANT_MODEL_REFERENCE_INVALID')
+
+    def test_missing_model_target_passes_only_when_database_model_is_empty(self):
+        self.insert('c','pop1','model-id','model','appleIpadAir11SeriesHandset')
+        for database_value in [None, '']:
+            with self.subTest(database_value=database_value):
+                self.master['MODEL']=database_value
+                self.v.issues.clear()
+                self.assertEqual(self.check(),[])
+        self.master['MODEL']='AIR11M3WF_128GB'
+        issue,=self.check()
+        self.assertEqual(issue['name'],'MODEL')
+        self.assertEqual(issue['expected'],repr('AIR11M3WF_128GB'))
+        self.assertIn('appleIpadAir11SeriesHandset',issue['reason'])
+
+    def test_empty_model_target_is_also_no_model(self):
+        self.insert('c','pop1','model-id','model','appleIpadAir11SeriesHandset')
+        self.insert('c','pop1','target-id','apple_ipad_air11_series_handset','')
+        self.master['MODEL']=None
+        self.assertEqual(self.check(),[])
+
+    def test_model_reference_snake_case_matches_camel_case_target(self):
+        self.master['MODEL']='AIR11M3WF_128GB'
+        self.insert('c','pop1','model-id','model','apple_ipad_air11_series_handset')
+        self.insert('c','pop1','model-value-id','appleIpadAir11SeriesHandset','AIR11M3WF_128GB')
+        self.assertEqual(self.check(),[])
 
     def test_invalid_pairs_and_multiple_onetime(self):
         self.v.rows['v'][0]['vals']='STARLIGHT'

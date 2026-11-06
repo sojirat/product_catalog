@@ -598,13 +598,33 @@ class RuleValidator:
             master = products[0]
             self.coverage['14_checked_variants'] += 1
             for column in PRODUCT_CHAR_COLUMNS:
-                actual = char_list[char_key(column)]
+                source_name = 'storage_capacity' if column == 'CAPACITY' else column
+                actual = char_list[char_key(source_name)]
+                detail = 'PRODUCT_ID='+str(master['PRODUCT_ID'])
+                if column == 'MODEL' and actual:
+                    if len(actual) != 1:
+                        error('VARIANT_MODEL_REFERENCE_INVALID',
+                              f'model ต้องชี้ชื่อ Char หนึ่งชื่อ พบ {sorted(actual)!r}', name='MODEL',
+                              val=repr(sorted(actual)), expected=repr(master[column]), related=detail)
+                        continue
+                    reference_name = next(iter(actual))
+                    target_key = char_key(reference_name)
+                    actual = char_list[target_key]
+                    if target_key == char_key('model'):
+                        error('VARIANT_MODEL_REFERENCE_MISSING',
+                              f'model={reference_name!r}: ชี้กลับมาที่ model เอง',
+                              name='MODEL', val=reference_name, expected=repr(master[column]), related=detail)
+                        continue
+                    source_name = f'model -> {reference_name}'
+                    if not actual:
+                        source_name += ' (ไม่พบ Char ปลายทางที่มีค่า จึงต้องไม่มีค่า MODEL)'
+                detail += '; Char source='+source_name
                 expected = set() if master[column] in (None, '') else {master[column]}
                 if actual != expected:
                     error('VARIANT_MASTER_CHAR_MISMATCH',
-                          f'Char {column}: Char List={sorted(actual)!r} ไม่ตรงกับ PRODUCT_MST.{column}={master[column]!r}',
+                          f'Char {source_name}: Char List={sorted(actual)!r} ไม่ตรงกับ PRODUCT_MST.{column}={master[column]!r}',
                           name=column, val=repr(sorted(actual)), expected=repr(master[column]),
-                          related='PRODUCT_ID='+str(master['PRODUCT_ID']))
+                          related=detail)
             groups = char_list[char_key('price_group')]
             if len(groups) != 1:
                 error('VARIANT_PRICE_GROUP_COUNT', f'Char List ต้องมี price_group หนึ่งค่า พบ {sorted(groups)!r}')

@@ -1,6 +1,7 @@
 """Exact PO/POP rules over source rows, with no local database."""
 from collections import Counter, defaultdict
 from decimal import Decimal, InvalidOperation
+from datetime import datetime, timezone
 from itertools import islice
 from time import monotonic
 from validation_progress import stage, batch_progress
@@ -28,6 +29,8 @@ class RuleValidator:
         self.resource_spec_lookup = None
         self.product_master_lookup = None
         self.variant_master_lookup = None
+        self.main_model_lookup = None
+        self.main_model_passes = []
         self.selected_rules = list(range(1,15))
         self.ex_po = set(config['exclude_po_ids'])
         self.ex_pop = set(config['exclude_pop_ids'])
@@ -268,6 +271,8 @@ class RuleValidator:
                              reason='POP ไม่มี model ที่มีค่า และ Variant ที่เชื่อมกันทุกแถวไม่มี model-mh_mg00556 ใน specCharacteristics')
 
     def rule7(self):
+        self.main_model_passes = []
+        candidates = {}
         if not self.has(7, 'm', 'c'):
             return
         need = [r for r in self.am if not any(c['val'] != '' for c in self.chars_by_id[r['pid'], MAIN])]
@@ -298,10 +303,41 @@ class RuleValidator:
                     self.finding(7, 'PO_CV_MISSING', row, po=po)
                 device = next((c for c in chars if c['cid'] == TYPE and c['val'] == 'DEVICE'), None)
                 if device and not any(c['cid'] == MAIN and c['val'] != '' for c in chars):
-                    self.finding(7, 'DEVICE_MAIN_MISSING', row, po=po, cid=MAIN,
-                                 reason='POP ไม่มี main_model ที่มีค่า และ Variant ทุกแถวไม่มี main_model-mh_mg00554 โดย PO จาก Variant เป็น DEVICE แต่ไม่มี main_model ที่มีค่าใน Char_Value',
-                                 expected='main_model มีค่าใน POP หรือมี ID ใน Variant หรือมีค่าใน Char_Value ของ PO ที่เป็น DEVICE',
-                                 related=f"DEVICE source: {device['src']} record {device['rn']}")
+                    for variant in variants:
+                        if variant['po'] == po:
+                            candidates[variant['id'], row['pid']] = (variant, row['pid'])
+        if not candidates:
+            return
+        codes = sorted({v['sku'] for v, pid in candidates.values() if v['sku'] != ''})
+        try:
+            if codes and self.main_model_lookup is None:
+                raise RuntimeError('Main model lookup is not configured')
+            masters = self.main_model_lookup(codes) if codes else {}
+        except Exception as error:
+            for variant, pid in candidates.values():
+                self.finding(7, 'MAIN_MODEL_LOOKUP_UNAVAILABLE', variant, pid=pid, severity='REVIEW',
+                             reason='ตรวจ PRODUCT_MST.MAIN_MODEL ไม่สำเร็จ จึงยังสรุปข้อ 7 ไม่ได้',
+                             related=type(error).__name__)
+            return
+        for variant, pid in candidates.values():
+            rows = masters.get(variant['sku'], []) if variant['sku'] else []
+            if len(rows) > 1:
+                self.finding(7, 'MAIN_MODEL_MASTER_MULTIPLE', variant, pid=pid, severity='REVIEW',
+                             reason='พบ MAT_CODE ใน PRODUCT_MST หลายแถว ยังไม่มีเกณฑ์เลือก MAIN_MODEL', related=str(len(rows)))
+            elif not rows or rows[0]['MAIN_MODEL'] not in (None, ''):
+                self.finding(7, 'DEVICE_MAIN_MISSING', variant, pid=pid, cid=MAIN,
+                             reason='ไม่มี main_model ใน POP, Variant และ PO ที่เป็น DEVICE และ ' +
+                             ('ไม่พบ MAT_CODE ใน PRODUCT_MST' if not rows else 'PRODUCT_MST.MAIN_MODEL มีข้อมูล'),
+                             expected="PRODUCT_MST.MAIN_MODEL IS NULL OR MAIN_MODEL = ''",
+                             related=f"MAT_CODE={variant['sku']!r}; MAIN_MODEL={rows[0]['MAIN_MODEL']!r}" if rows else f"MAT_CODE={variant['sku']!r}")
+            else:
+                entry = dict.fromkeys(('src','sheet','po','pid','vid','sku','cid','name','val','expected','related'), '')
+                entry.update({key:variant[key] for key in ('src','sheet','rn','po','vid','sku')})
+                entry.update(id=len(self.main_model_passes)+1, rule='7', severity='PASS', code='MAIN_MODEL_NULL_ALLOWED',
+                             reason='ไม่มี main_model ใน POP, Variant และ PO แต่ PRODUCT_MST.MAIN_MODEL เป็น NULL หรือข้อความว่าง จึงผ่าน',
+                             pid=pid, cid=MAIN, related='PRODUCT_MST.MAIN_MODEL = '+('NULL' if rows[0]['MAIN_MODEL'] is None else repr(rows[0]['MAIN_MODEL'])), occurrences=1)
+                self.main_model_passes.append(entry)
+        self.coverage['7_main_model_null_pass_rows'] = len(self.main_model_passes)
 
     def rule8(self):
         if not self.has(8, 'm', 'o'):
@@ -592,51 +628,75 @@ class RuleValidator:
                 self.finding(14, code, row, reason=reason, pid=pop['pid'], **values)
             reference = masters[row['sku']]
             products = reference['products']
-            if len(products) != 1:
-                error('VARIANT_PRODUCT_MASTER_COUNT', f'SKU={row["sku"]!r}: PRODUCT_MST ต้องมีหนึ่งแถว พบ {len(products)} แถว')
+            multiple_products = len(products) > 1
+            if multiple_products:
+                companies = char_list[char_key('company')]
+                products = [product for product in products if product['COMPANY'] in companies]
+            if not products:
+                detail = (f' หลังเทียบ COMPANY กับ Char List company={sorted(companies)!r}' if multiple_products else '')
+                error('VARIANT_PRODUCT_MASTER_COUNT', f'SKU={row["sku"]!r}: ไม่พบ PRODUCT_MST ที่ใช้ตรวจได้{detail}')
                 continue
-            master = products[0]
             self.coverage['14_checked_variants'] += 1
-            for column in PRODUCT_CHAR_COLUMNS:
-                source_name = 'storage_capacity' if column == 'CAPACITY' else column
-                actual = char_list[char_key(source_name)]
-                detail = 'PRODUCT_ID='+str(master['PRODUCT_ID'])
-                if column == 'MODEL' and actual:
-                    if len(actual) != 1:
-                        error('VARIANT_MODEL_REFERENCE_INVALID',
-                              f'model ต้องชี้ชื่อ Char หนึ่งชื่อ พบ {sorted(actual)!r}', name='MODEL',
-                              val=repr(sorted(actual)), expected=repr(master[column]), related=detail)
-                        continue
-                    reference_name = next(iter(actual))
-                    target_key = char_key(reference_name)
-                    actual = char_list[target_key]
-                    if target_key == char_key('model'):
-                        error('VARIANT_MODEL_REFERENCE_MISSING',
-                              f'model={reference_name!r}: ชี้กลับมาที่ model เอง',
-                              name='MODEL', val=reference_name, expected=repr(master[column]), related=detail)
-                        continue
-                    source_name = f'model -> {reference_name}'
-                    if not actual:
-                        source_name += ' (ไม่พบ Char ปลายทางที่มีค่า จึงต้องไม่มีค่า MODEL)'
-                detail += '; Char source='+source_name
-                expected = set() if master[column] in (None, '') else {master[column]}
-                if actual != expected:
-                    error('VARIANT_MASTER_CHAR_MISMATCH',
-                          f'Char {source_name}: Char List={sorted(actual)!r} ไม่ตรงกับ PRODUCT_MST.{column}={master[column]!r}',
-                          name=column, val=repr(sorted(actual)), expected=repr(master[column]),
-                          related=detail)
+            for master in products:
+                for column in PRODUCT_CHAR_COLUMNS:
+                    source_name = 'storage_capacity' if column == 'CAPACITY' else column
+                    actual = char_list[char_key(source_name)]
+                    detail = 'PRODUCT_ID='+str(master['PRODUCT_ID'])
+                    if column == 'MODEL' and actual:
+                        if len(actual) != 1:
+                            error('VARIANT_MODEL_REFERENCE_INVALID',
+                                  f'model ต้องชี้ชื่อ Char หนึ่งชื่อ พบ {sorted(actual)!r}', name='MODEL',
+                                  val=repr(sorted(actual)), expected=repr(master[column]), related=detail)
+                            continue
+                        reference_name = next(iter(actual))
+                        target_key = char_key(reference_name)
+                        actual = char_list[target_key]
+                        if target_key == char_key('model'):
+                            error('VARIANT_MODEL_REFERENCE_MISSING',
+                                  f'model={reference_name!r}: ชี้กลับมาที่ model เอง',
+                                  name='MODEL', val=reference_name, expected=repr(master[column]), related=detail)
+                            continue
+                        source_name = f'model -> {reference_name}'
+                        if not actual:
+                            source_name += ' (ไม่พบ Char ปลายทางที่มีค่า จึงต้องไม่มีค่า MODEL)'
+                    detail += '; Char source='+source_name
+                    expected = set() if master[column] in (None, '') else {master[column]}
+                    if actual != expected:
+                        error('VARIANT_MASTER_CHAR_MISMATCH',
+                              f'Char {source_name}: Char List={sorted(actual)!r} ไม่ตรงกับ PRODUCT_MST.{column}={master[column]!r}',
+                              name=column, val=repr(sorted(actual)), expected=repr(master[column]),
+                              related=detail)
             groups = char_list[char_key('price_group')]
             if len(groups) != 1:
                 error('VARIANT_PRICE_GROUP_COUNT', f'Char List ต้องมี price_group หนึ่งค่า พบ {sorted(groups)!r}')
                 continue
             price_group = next(iter(groups))
-            matching = [price for price in reference['prices'] if price['PRICE_GROUP'] == price_group]
+            product_ids = list(dict.fromkeys(product['PRODUCT_ID'] for product in products))
+            product_prices = ([dict(price, PRODUCT_ID=product_id)
+                               for product_id in product_ids
+                               for price in reference['prices_by_product'][product_id]] if multiple_products
+                              else [dict(price, PRODUCT_ID=products[0]['PRODUCT_ID']) for price in reference['prices']])
+            matching = [price for price in product_prices if price['PRICE_GROUP'] == price_group]
             if not matching:
-                error('VARIANT_PRICE_MASTER_MISSING', f'ไม่พบ PRICE_MST ของ PRODUCT_ID={master["PRODUCT_ID"]!r} และ PRICE_GROUP={price_group!r}')
+                error('VARIANT_PRICE_MASTER_MISSING', f'ไม่พบ PRICE_MST ของ PRODUCT_ID={product_ids!r} และ PRICE_GROUP={price_group!r}')
                 continue
             if len(matching) > 1:
-                error('VARIANT_PRICE_MASTER_MULTIPLE', f'พบ PRICE_MST มากกว่าหนึ่งแถวสำหรับ PRODUCT_ID={master["PRODUCT_ID"]!r}, PRICE_GROUP={price_group!r}', severity='REVIEW')
-                continue
+                try:
+                    dated = []
+                    for price in matching:
+                        value = price.get('EFFECTIVE_DATE')
+                        date = None if value in (None, '') else (value if isinstance(value, datetime) else datetime.fromisoformat(str(value)))
+                        if date is not None:
+                            date = date.replace(tzinfo=timezone.utc) if date.tzinfo is None else date.astimezone(timezone.utc)
+                        dated.append((date, price))
+                    latest = max(date for date, price in dated if date is not None)
+                    matching = [price for date, price in dated if date == latest]
+                except (ValueError, TypeError):
+                    error('VARIANT_PRICE_MASTER_MULTIPLE', 'เลือกแถวราคาล่าสุดไม่ได้ เพราะ EFFECTIVE_DATE ไม่มีค่าหรือรูปแบบไม่ถูกต้อง', severity='REVIEW', related=f'PRODUCT_ID={product_ids!r}')
+                    continue
+                if len(matching) != 1:
+                    error('VARIANT_PRICE_MASTER_MULTIPLE', f'พบหลายแถวที่ EFFECTIVE_DATE ล่าสุดเท่ากัน: {latest.isoformat()}', severity='REVIEW', related=f'PRODUCT_ID={product_ids!r}')
+                    continue
             inc_vat = matching[0]['INC_VAT']
             try:
                 actual_price, expected_price = Decimal(str(pop['price_value'])), Decimal(str(inc_vat))
@@ -647,7 +707,7 @@ class RuleValidator:
                 continue
             if actual_price != expected_price:
                 error('VARIANT_PRICE_MISMATCH', f'POP.price_value={pop["price_value"]!r} ไม่ตรงกับ PRICE_MST.INC_VAT={inc_vat!r} ของ PRICE_GROUP={price_group!r}',
-                      val=pop['price_value'], expected=str(inc_vat), related='PRODUCT_ID='+str(master['PRODUCT_ID']))
+                      val=pop['price_value'], expected=str(inc_vat), related='PRODUCT_ID='+str(matching[0]['PRODUCT_ID'])+'; EFFECTIVE_DATE='+str(matching[0].get('EFFECTIVE_DATE')))
 
     def summary(self):
         rules = []

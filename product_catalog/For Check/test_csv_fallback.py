@@ -91,3 +91,19 @@ class FallbackTests(unittest.TestCase):
         self.assertEqual(actual, self.csv.resolve())
         self.assertEqual([r['po'] for r in self.v.rows['po']], ['001', '002'])
         database.assert_not_called()
+
+    def test_raw_export_csv_with_different_timestamp_needs_no_mapping(self):
+        newer = self.csv.with_name('ProductOffer_061120261513000.csv')
+        self.csv.rename(newer)
+        with patch('csv_fallback.open_database', side_effect=AssertionError('must stay offline')) as database:
+            actual = read_with_fallback(self.v, self.xlsx, 'po', 'ProductOffer', Path('.env'))
+        self.assertEqual(actual, newer.resolve())
+        self.assertEqual([r['po'] for r in self.v.rows['po']], ['001', '002'])
+        database.assert_not_called()
+
+    def test_multiple_raw_export_csv_candidates_are_not_guessed(self):
+        self.csv.rename(self.csv.with_name('ProductOffer_061120261513000.csv'))
+        self.csv.with_name('ProductOffer_071120261513000.csv').write_text('Product Id\n003\n', encoding='utf-8')
+        with patch('csv_fallback.open_database') as database, self.assertRaisesRegex(ValueError, 'found 2'):
+            find_csv(self.xlsx, 'ProductOffer', Path('.env'))
+        database.assert_not_called()

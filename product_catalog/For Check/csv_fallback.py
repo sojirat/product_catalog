@@ -19,6 +19,15 @@ def find_csv(xlsx_path, sheet, env_path):
         direct = xlsx_root.parent / 'csv' / xlsx_path.relative_to(xlsx_root).with_suffix('.csv')
         if direct.is_file():
             return direct.resolve()
+        # An export round can contain an XLSX and replacement CSV with different
+        # timestamps. Use its known raw-export name before requiring DB mapping.
+        from export_source import EXPORT_FILES, one_file
+        for folder, prefix, raw_sheet in set(EXPORT_FILES.values()):
+            if (xlsx_path.parent.name == folder and sheet == raw_sheet
+                    and xlsx_path.stem.startswith(prefix)):
+                csv_folder = xlsx_root.parent / 'csv' / folder
+                if list(csv_folder.glob(prefix + '*.csv')):
+                    return one_file(csv_folder, prefix + '*.csv')
     connection, schema = open_database(env_path)
     try:
         with connection.cursor() as cursor:
@@ -82,7 +91,10 @@ def read_with_fallback(validator, path, table, sheet, env_path, on_source=None):
         validator.read_xlsx(path, table, sheet_name=sheet)
         if table in validator.ready:
             return None
-        raise ValueError(f'Incomplete XLSX sheet: {sheet}')
+        diagnostics = validator.issues[issue_count:]
+        detail = '; '.join(f"record {issue.get('rn')}: {issue['reason']}; {issue.get('related', '')}"
+                           for issue in diagnostics[:3])
+        raise ValueError(f'Incomplete XLSX sheet: {sheet}; {detail}')
     except READ_ERRORS as error:
         # A workbook can fail after inserting earlier batches. Replace that
         # attempt as a whole, including diagnostics, rather than appending CSV.

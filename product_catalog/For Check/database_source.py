@@ -21,10 +21,19 @@ def identifier(value):
 
 
 def open_database(env_path):
-    if not env_path.is_file():
-        raise FileNotFoundError(env_path)
-    config = load_database_config(env_path)
-    return connect_database(config), config.schema
+    from database_csv import current_source, Source
+    source = current_source() or Source()
+    if source.force_csv or source.offline:
+        return source.csv_connection()
+    try:
+        if not env_path.is_file():
+            raise FileNotFoundError(env_path)
+        config = load_database_config(env_path)
+        return connect_database(config), config.schema
+    except Exception as error:
+        source.offline = True
+        LOG.warning('Database unavailable (%s); using CSV from %s', type(error).__name__, source.directory)
+        return source.csv_connection()
 
 
 def read_database(validator, env_path, tables=None):
@@ -36,7 +45,7 @@ def read_database(validator, env_path, tables=None):
         with connection.cursor() as cursor:
             mapping_table = os.getenv('TEMPLATE_MAPPING_TABLE', 'template_mapping').strip()
             cursor.execute(f'SELECT * FROM {identifier(schema)}.{identifier(mapping_table)}')
-            mappings = [row for row in cursor.fetchall() if row.get('isActive', 1)]
+            mappings = [row for row in cursor.fetchall() if str(row.get('isActive', 1)).lower() not in ('0', 'false', '', 'none')]
             for table, (sheet, required, fields) in SCHEMAS.items():
                 if table not in tables:
                     continue
@@ -145,8 +154,26 @@ def find_product_master(env_path, codes):
         connection.close()
 
 
+def find_main_models(env_path, codes):
+    """Rule 7 needs every matching MAIN_MODEL, without querying PRICE_MST."""
+    codes = sorted(set(codes))
+    if not codes:
+        return {}
+    connection, schema = open_database(env_path)
+    try:
+        result = {}
+        with connection.cursor() as cursor:
+            for number, code in enumerate(codes, 1):
+                cursor.execute(f'SELECT [MAIN_MODEL] FROM {identifier(schema)}.[PRODUCT_MST] WHERE [MAT_CODE] = ?', (code,))
+                result[code] = cursor.fetchall()
+                batch_progress('Rule 7 database SKUs', number, len(codes))
+        return result
+    finally:
+        connection.close()
+
+
 def find_variant_masters(env_path, codes):
-    """Rule 14 requires a unique product row, unlike rule 13's latest-row policy."""
+    """Read all SKU candidates and keep their prices separate for company selection."""
     from validation_domain import PRODUCT_CHAR_COLUMNS
     codes = sorted(set(codes))
     if not codes:
@@ -160,13 +187,19 @@ def find_variant_masters(env_path, codes):
                 if number == 1: LOG.info('Rule 14: querying PRODUCT_MST and PRICE_MST (%s SKUs)',len(codes))
                 cursor.execute(f'SELECT {columns} FROM {identifier(schema)}.[PRODUCT_MST] WHERE [MAT_CODE] = ?', (code,))
                 products = cursor.fetchall()
-                prices = []
-                if len(products) == 1:
-                    cursor.execute(f'SELECT p.[PRICE_GROUP], p.[INC_VAT] FROM {identifier(schema)}.[PRICE_MST] p '
+                prices_by_product = {}
+                for product in products:
+                    product_id = product['PRODUCT_ID']
+                    if product_id in prices_by_product:
+                        continue
+                    cursor.execute(f'SELECT p.[PRICE_GROUP], p.[INC_VAT], p.[EFFECTIVE_DATE] FROM {identifier(schema)}.[PRICE_MST] p '
                                    f'INNER JOIN {identifier(schema)}.[PRODUCT_MST] m ON p.[PRODUCT_ID] = m.[PRODUCT_ID] '
-                                   'WHERE m.[MAT_CODE] = ? AND m.[PRODUCT_ID] = ?', (code, products[0]['PRODUCT_ID']))
-                    prices = cursor.fetchall()
+                                   'WHERE m.[MAT_CODE] = ? AND m.[PRODUCT_ID] = ?', (code, product_id))
+                    prices_by_product[product_id] = cursor.fetchall()
+                prices = prices_by_product[products[0]['PRODUCT_ID']] if len(products) == 1 else []
                 result[code] = {'products': products, 'prices': prices}
+                if len(products) > 1:
+                    result[code]['prices_by_product'] = prices_by_product
                 batch_progress('Rule 14 database SKUs',number,len(codes))
         return result
     finally:
@@ -174,7 +207,10 @@ def find_variant_masters(env_path, codes):
 
 
 def check_connection(env_path):
-    connection, _ = open_database(env_path)
+    # This diagnostic must test the real server, without CSV fallback.
+    if not env_path.is_file():
+        raise FileNotFoundError(env_path)
+    connection = connect_database(load_database_config(env_path))
     try:
         with connection.cursor() as cursor:
             cursor.execute('SELECT 1 AS connection_ok')

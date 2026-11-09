@@ -4,6 +4,121 @@
 หากไม่ระบุข้อมูลต้นทาง โปรแกรมจะอ่านรอบล่าสุดจาก `export/` ของโปรเจกต์โดยอัตโนมัติ
 หากระบุชื่อโฟลเดอร์ จะอ่านรอบนั้นแทน หรือใช้ `--database` เพื่ออ่านจากฐานข้อมูล
 
+## คำสั่งตรวจ 4 รูปแบบสำหรับ Mac และ Windows
+
+ข้อ 14 รองรับ PRODUCT_MST หลายแถวต่อ SKU โดยกรอง COMPANY ด้วย company ใน Char List แล้วใช้ PRODUCT_ID ของทุกแถวที่ตรงกันค้นราคา หลังกรอง PRICE_GROUP จะเลือก EFFECTIVE_DATE ล่าสุดมาเทียบราคา หากใช้ CSV ให้เตรียมคอลัมน์ EFFECTIVE_DATE ใน PRICE_MST ด้วย เช่น `2026-11-09 10:58:00`
+
+สำหรับข้อ 7 หากไม่พบ main_model ใน POP, Variant และ PO ที่เป็น DEVICE โปรแกรมจะใช้ SKU ตรวจ `PRODUCT_MST.MAIN_MODEL` เพิ่ม หากพบหนึ่งแถวที่เป็น NULL หรือข้อความว่าง `''` จะผ่านและสร้างรายงานแยก `Result_Rule7_NoMainModel_<วันเวลา>.xlsx` ในโฟลเดอร์ผลตรวจ เพื่อดู Variant ID ที่ไม่มี main model รายงานนี้สร้างเฉพาะเมื่อมีรายการที่ผ่านด้วยเงื่อนไขนี้ หากไม่พบ MAT_CODE หรือ MAIN_MODEL มีข้อมูล จะอยู่ใน Error Report ตามเดิม ข้อความที่มีเฉพาะช่องว่างยังถือว่ามีค่า
+
+รันคำสั่งจากโฟลเดอร์หลักของโปรเจกต์ที่มี `Makefile` และโฟลเดอร์ `product_catalog` สำหรับ Mac ให้ติดตั้ง dependencies ด้วย `make setup-check` ก่อนใช้งานครั้งแรก ส่วน Windows ให้ติดตั้งตามหัวข้อเตรียม Python ด้านล่าง
+
+โหมด database ใช้การเชื่อมต่อจาก `product_catalog/.env` หากเชื่อมต่อไม่ได้จะใช้ CSV ใน `Database/` อัตโนมัติ ส่วนโหมด CSV ระบุ `--csv` เพื่อไม่เชื่อมต่อฐานข้อมูล และต้องเตรียม `template_mapping.csv` พร้อม CSV ของ table/view ที่กฎที่เลือกต้องใช้ใน `Database/`
+
+### 1. ตรวจทุกข้อ 1–14 ด้วย database
+
+Mac:
+
+```sh
+make check-db
+```
+
+Windows PowerShell:
+
+```powershell
+& ".\product_catalog\For Check\run_check.cmd" --database
+```
+
+### 2. ตรวจทุกข้อ 1–14 ด้วย CSV
+
+Mac:
+
+```sh
+make check-db CHECK_ARGS="--csv"
+```
+
+Windows PowerShell:
+
+```powershell
+& ".\product_catalog\For Check\run_check.cmd" --csv
+```
+
+บน Mac คำสั่ง `make check-db` ร่วมกับ `--csv` จะอ่าน CSV แทนฐานข้อมูล โดยไม่เปิดการเชื่อมต่อฐานข้อมูล
+
+### 3. ตรวจหลายข้อในครั้งเดียวด้วย database
+
+ตัวอย่างตรวจข้อ 10, 12, 13 และ 14:
+
+Mac:
+
+```sh
+make check-db CHECK_ARGS="--rules 10 12 13 14"
+```
+
+Windows PowerShell:
+
+```powershell
+& ".\product_catalog\For Check\run_check.cmd" --database --rules 10 12 13 14
+```
+
+### 4. ตรวจหลายข้อในครั้งเดียวด้วย CSV
+
+ตัวอย่างตรวจข้อ 10, 12, 13 และ 14:
+
+Mac:
+
+```sh
+make check-db CHECK_ARGS="--csv --rules 10 12 13 14"
+```
+
+Windows PowerShell:
+
+```powershell
+& ".\product_catalog\For Check\run_check.cmd" --csv --rules 10 12 13 14
+```
+
+เปลี่ยนเลขหลัง `--rules` เป็นข้อที่ต้องการตรวจ โดยคั่นด้วยช่องว่าง รองรับข้อ 1 ถึง 14 และข้อ 9 รวมข้อย่อย 9.1–9.6 หากไม่ระบุ `--rules` จะตรวจทุกข้อ 1–14
+
+## ใช้ CSV ใน Database แทนฐานข้อมูล
+
+หากระบุรอบ export ร่วมกับ `--csv` ข้อมูลหลักยังอ่านจาก Excel ของรอบนั้น ส่วน `--csv` ใช้แทนการเรียกฐานข้อมูล หาก Excel อ่านไม่สำเร็จ โปรแกรมจะหา CSV ชื่อเดียวกันในโฟลเดอร์ `csv` ของรอบนั้นก่อน หากไม่มี จะหา CSV ตามชื่อชนิดข้อมูล เช่น `PO_Product_Variants_*.csv` ในโฟลเดอร์เดียวกัน แม้ timestamp ต่างจาก Excel ต้องพบเพียงหนึ่งไฟล์ หากมีหลายไฟล์จะหยุดเพื่อไม่เดาไฟล์ที่ต้องใช้
+
+รองรับชื่อไฟล์ที่ต่อท้ายด้วยเวลา เช่น `PRODUCT_MST_202611091058.csv` โดยใช้รูปแบบ `YYYYMMDDHHMM` หรือ `YYYYMMDDHHMMSS` โปรแกรมเลือก `<table>.csv` ก่อน หากไม่มีจึงเลือกไฟล์ timestamp ล่าสุดจากชื่อไฟล์ หากเวลาเท่ากันเลือกไฟล์ที่ระบุวินาที ใช้กฎเดียวกันกับทุก table/view รวม `template_mapping` และ `table_mapping` โดยไม่ต้องแก้คำสั่งรัน
+
+วางไฟล์ `<ชื่อ table หรือ view>.csv` ใน `Database/` ที่ root ของโปรเจกต์ เช่น `PRODUCT_MST.csv`, `PRICE_MST.csv` และ `vw_catalog_offer_specification_characteristic.csv` แถวแรกต้องเป็นชื่อคอลัมน์ตามฐานข้อมูล ใช้ UTF-8 และใช้ `\N` สำหรับ SQL NULL ส่วนช่องว่างเปล่าคือข้อความว่าง
+
+หากต้องการอ่านข้อมูลหลักทั้งหมดจาก CSV ให้เตรียม `template_mapping.csv` พร้อม CSV ของ table/view ที่ `DATABASE NAME` ระบุด้วย ไม่ต้องมี mapping เมื่ออ่านข้อมูลหลักจาก export และใช้เฉพาะข้อมูลอ้างอิงข้อ 12–14
+
+รันจาก root ของโปรเจกต์บน Windows:
+
+```powershell
+# ตรวจทุกกฎจาก Database โดยไม่เชื่อมฐานข้อมูล
+& ".\product_catalog\For Check\run_check.cmd" --csv
+
+# ตรวจแยกข้อ หรือเลือกหลายข้อ
+& ".\product_catalog\For Check\run_check.cmd" --csv --rules 13
+& ".\product_catalog\For Check\run_check.cmd" --csv --rules 10 12 13 14
+
+# อ่านข้อมูลหลักจาก export และใช้ CSV แทนการเรียกฐานข้อมูล
+& ".\product_catalog\For Check\run_check.cmd" "30102026110649" --csv
+& ".\product_catalog\For Check\run_check.cmd" "30102026110649" --csv --rules 13 14
+
+# เลือกโฟลเดอร์ CSV อื่น
+& ".\product_catalog\For Check\run_check.cmd" --csv --database-dir "D:\ReferenceData" --rules 13
+
+# ลองฐานข้อมูลก่อน หากเชื่อมต่อไม่ได้จะใช้ Database อัตโนมัติ
+& ".\product_catalog\For Check\run_check.cmd" --database --rules 13
+```
+
+บน Mac ใช้คำสั่ง:
+
+```sh
+make check-db CHECK_ARGS="--csv"
+make check-db CHECK_ARGS="--csv --rules 13 14"
+make check INPUT_DIR="30102026110649" CHECK_ARGS="--csv --rules 13"
+```
+
+ไม่ระบุ `--rules` หมายถึงตรวจทุกข้อ หากไฟล์ CSV ที่ต้องใช้ไม่ครบ โปรแกรมจะหยุดหรือรายงาน Review พร้อม `complete=false` ตามประเภทข้อมูล ดูกฎกลางใน `RULES_TH.md` และไฟล์ที่ใช้จริงใน `run.log` กับ `summary.json`
+
 ## รันบน Mac ด้วย make
 
 เปิด Terminal ที่โฟลเดอร์หลักของโปรเจกต์ (โฟลเดอร์ที่มี `Makefile`):

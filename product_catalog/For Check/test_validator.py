@@ -16,6 +16,7 @@ class Tests(unittest.TestCase):
   self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name);self.v=Validator(CONFIG)
   self.v.ready.update(SCHEMAS)
   self.v.product_master_lookup=lambda codes:{code:[{'COMMERCIAL_NAME':'Name','SAP_DESCRIPTION':'Description'}] for code in codes}
+  self.v.main_model_lookup=lambda codes:{code:[{'MAIN_MODEL':'Required model'}] for code in codes}
   self.ins('po',('po1',));self.ins('m',('p1',));self.ins('o',('po1','p1'))
   self.ins('v',('po1','v1','color','BLACK','001'));self.ins('l',('v1','p1'));self.ins('t',('p1','001'))
   for cid,name,val in [(UNIT,'unit','piece'),(MODEL,'model','widget'),(MAIN,'mainModel','DeviceModel')]:

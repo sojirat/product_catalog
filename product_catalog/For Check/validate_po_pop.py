@@ -163,7 +163,7 @@ def export_report(v, path, severity, verify=True, rows_per_sheet=DEFAULT_REPORT_
  """
  if isinstance(rows_per_sheet, bool) or not isinstance(rows_per_sheet, int) or not 1 <= rows_per_sheet <= EXCEL_MAX_DATA_ROWS:
   raise ValueError(f'rows_per_sheet must be between 1 and {EXCEL_MAX_DATA_ROWS}')
- selected = sorted((i for i in v.issues if (i['severity']=='ERROR') == (severity=='ERROR')), key=lambda i: (float(i['rule']) if i['rule']!='INPUT' else 0, i['id']))
+ selected = (v.main_model_passes if severity == 'PASS' else sorted((i for i in v.issues if (i['severity']=='ERROR') == (severity=='ERROR')), key=lambda i: (float(i['rule']) if i['rule']!='INPUT' else 0, i['id'])))
  if not selected:
   LOG.info('Report %s: skipped because there are no matching issues',path.name)
   return {}
@@ -289,10 +289,19 @@ def config_read(path):
 
 
 def main(argv=None):
+ from database_csv import source_mode
+ with source_mode():
+  return _main(argv)
+
+
+def _main(argv=None):
  ap=argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
  ap.add_argument('folder',nargs='?',type=Path,help='Export round name or path; omitted: latest round in the project export directory')
  ap.add_argument('--po',type=Path);ap.add_argument('--pop',type=Path);ap.add_argument('--meta',type=Path)
  ap.add_argument('--database',action='store_true',help='Read SQL Server using the project .env and template_mapping')
+ ap.add_argument('--csv',action='store_true',help='Use table-named CSV files instead of connecting to SQL Server')
+ from database_csv import DEFAULT_DIRECTORY, current_source
+ ap.add_argument('--database-dir',type=Path,default=DEFAULT_DIRECTORY,help='CSV database snapshot directory (default: project Database)')
  ap.add_argument('--input-dir',type=Path,help='Export round name, round path or XLSX directory; use sibling csv for large Char_Value')
  ap.add_argument('--latest-export',type=Path,help='Use the latest DDMMYYYYHHMMSS export folder under this directory')
  ap.add_argument('--list-inputs',action='store_true',help='List resolved --input-dir files without running validation')
@@ -305,6 +314,12 @@ def main(argv=None):
  ap.add_argument('--report-rows-per-sheet',type=int,default=DEFAULT_REPORT_ROWS_PER_SHEET,
                  help='Maximum data rows per report sheet, excluding header (default: %(default)s)')
  args=ap.parse_args(argv)
+ source=current_source()
+ source.directory=args.database_dir.resolve()
+ source.force_csv=args.csv
+ if args.csv and args.check_connection:ap.error('--csv cannot be combined with --check-connection')
+ if args.csv and not any((args.folder,args.input_dir,args.latest_export,args.po,args.pop,args.meta)):
+  args.database=True
  selected_rules=sorted(set(args.rules)) if args.rules else list(range(1,15))
  required_tables=set().union(*(RULE_INPUTS[number] for number in selected_rules))
  if not 1 <= args.report_rows_per_sheet <= EXCEL_MAX_DATA_ROWS:
@@ -365,6 +380,7 @@ def main(argv=None):
    if not p.is_file():raise FileNotFoundError(p)
   stage(5, 'Hashing input files')
   manifest={}
+  source.on_source=lambda p:manifest.setdefault(str(p.resolve()),digest(p))
   for number,p in enumerate(paths,1):
    LOG.info('Hashing input %s/%s: %s',number,len(paths),p)
    manifest[str(p.resolve())]=digest(p)
@@ -389,7 +405,8 @@ def main(argv=None):
    if 'cv' in required_tables:
     if args.char_value:v.read_cv_files([p.resolve() for p in args.char_value])
     else:read_with_fallback(v,args.po.resolve(),'cv',SCHEMAS['cv'][0],args.env,on_source=register)
-  from database_source import find_resource_spec_pairs, find_product_master, find_variant_masters
+  from database_source import find_resource_spec_pairs, find_product_master, find_variant_masters, find_main_models
+  v.main_model_lookup=lambda codes:find_main_models(args.env,codes)
   v.resource_spec_lookup=lambda pairs:find_resource_spec_pairs(args.env,pairs)
   v.product_master_lookup=lambda codes:find_product_master(args.env,codes)
   v.variant_master_lookup=lambda codes:find_variant_masters(args.env,codes)
@@ -403,6 +420,8 @@ def main(argv=None):
   stage(80, 'Writing and verifying Error report')
   summary['report_rows_per_sheet']=args.report_rows_per_sheet
   summary['error_report_rows']=export_report(v,out/f'Result_check_PO_POP_01-14_ErrorOnly_{stamp}.xlsx','ERROR',rows_per_sheet=args.report_rows_per_sheet)
+  if v.main_model_passes:
+   summary['main_model_null_report_rows']=export_report(v,out/f'Result_Rule7_NoMainModel_{stamp}.xlsx','PASS',rows_per_sheet=args.report_rows_per_sheet)
   if any(i['severity']!='ERROR' for i in v.issues):
    stage(90, 'Writing and verifying Review/Warning report')
    summary['review_report_rows']=export_report(v,out/f'Result_Review_Warning_{stamp}.xlsx','REVIEW',rows_per_sheet=args.report_rows_per_sheet)

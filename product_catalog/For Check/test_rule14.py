@@ -137,7 +137,64 @@ class Rule14Tests(unittest.TestCase):
 
     def test_product_master_must_be_unique_not_latest(self):
         self.reference['001']['products'].append(self.master.copy())
-        self.assertEqual(self.check()[0]['code'],'VARIANT_PRODUCT_MASTER_COUNT')
+        self.reference['001']['prices_by_product'] = {'product1': self.reference['001']['prices']}
+        self.assertEqual(self.check(), [])
+
+    def test_all_matching_products_use_latest_effective_price_after_group_filter(self):
+        self.reference['001']['products'].append(dict(self.master, PRODUCT_ID='product2'))
+        self.reference['001']['prices_by_product'] = {
+            'product1':[{'PRICE_GROUP':'EUP','INC_VAT':'999','EFFECTIVE_DATE':'2026-01-01'}],
+            'product2':[{'PRICE_GROUP':'EUP','INC_VAT':'100','EFFECTIVE_DATE':'2026-11-09'},
+                        {'PRICE_GROUP':'STAFF','INC_VAT':'1','EFFECTIVE_DATE':'2027-01-01'}]}
+        self.assertEqual(self.check(), [])
+
+    def test_latest_effective_price_is_selected_for_single_product(self):
+        from datetime import datetime
+        self.reference['001']['prices'] = [
+            {'PRICE_GROUP':'EUP','INC_VAT':'999','EFFECTIVE_DATE':datetime(2026,1,1)},
+            {'PRICE_GROUP':'EUP','INC_VAT':'100','EFFECTIVE_DATE':'2026-11-09 10:00:00'}]
+        self.assertEqual(self.check(), [])
+
+    def test_equal_latest_dates_and_invalid_dates_are_review(self):
+        for date in ('2026-11-09', 'invalid'):
+            self.v.issues.clear()
+            self.reference['001']['prices'] = [
+                {'PRICE_GROUP':'EUP','INC_VAT':'100','EFFECTIVE_DATE':date},
+                {'PRICE_GROUP':'EUP','INC_VAT':'999','EFFECTIVE_DATE':date}]
+            self.assertEqual(self.check()[0]['severity'], 'REVIEW')
+
+    def test_duplicate_sku_selects_matching_company_and_its_prices(self):
+        other = dict(self.master, PRODUCT_ID='other', COMPANY='Other', COLOR='BLACK')
+        self.reference['001']['products'] = [other, self.master]
+        self.reference['001']['prices'] = []
+        self.reference['001']['prices_by_product'] = {
+            'other':[{'PRICE_GROUP':'EUP','INC_VAT':'999'}],
+            'product1':[{'PRICE_GROUP':'EUP','INC_VAT':'100'}]}
+        self.assertEqual(self.check(), [])
+
+    def test_duplicate_sku_company_requires_one_matching_row(self):
+        self.reference['001']['products'] = [dict(self.master, COMPANY='Other'), dict(self.master, COMPANY='Else')]
+        self.assertEqual(self.check()[0]['code'], 'VARIANT_PRODUCT_MASTER_COUNT')
+        self.v.issues.clear()
+        self.v.rows['v'][0]['vals'] = 'STARLIGHT,awn,EUP'
+        self.reference['001']['products'][0]['COMPANY'] = 'AWN'
+        self.assertEqual(self.check()[0]['code'], 'VARIANT_PRODUCT_MASTER_COUNT')
+
+    def test_csv_multiple_products_keep_prices_per_product(self):
+        import csv
+        from database_csv import source_mode
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with (root/'PRODUCT_MST.csv').open('w',encoding='utf-8',newline='') as stream:
+                writer=csv.writer(stream)
+                writer.writerow(['MAT_CODE','PRODUCT_ID',*PRODUCT_CHAR_COLUMNS])
+                for product_id, company in [(1,'AWN'),(2,'Other')]:
+                    writer.writerow(['001',product_id,*[company if c=='COMPANY' else r'\N' for c in PRODUCT_CHAR_COLUMNS]])
+            (root/'PRICE_MST.csv').write_text('PRODUCT_ID,PRICE_GROUP,INC_VAT,EFFECTIVE_DATE\n1,EUP,100,2026-01-01\n2,EUP,999,2026-11-09\n',encoding='utf-8')
+            with source_mode(directory=root,force_csv=True):
+                result=find_variant_masters(root/'.env',['001'])
+            self.assertEqual(result['001']['prices_by_product'][1][0]['INC_VAT'],'100')
+            self.assertEqual(result['001']['prices_by_product'][2][0]['INC_VAT'],'999')
 
     def test_price_mismatch_missing_group_duplicate_and_invalid(self):
         for prices, code in [([], 'VARIANT_PRICE_MASTER_MISSING'),

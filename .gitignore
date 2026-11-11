@@ -223,5 +223,8 @@ results/
 .claude/
 .codex-runtime-deps/
 .github
+
+# Product Catalog
 product_catalog/For Check/results/
-product_catalog/Database/
+/Database/*
+!/Database/README.md

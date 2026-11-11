@@ -138,6 +138,8 @@ class DatabaseCsvTests(unittest.TestCase):
             mapping.append([sheet,table,'',workbook,'1'])
             self.write(table, columns + (['priceType','price_value'] if table == 'm' else []), [])
         self.write('template_mapping', ['EXCEL SHEET NAME','DATABASE NAME','UNOIN','EXCEL File','isActive'], mapping)
+        self.write('PRODUCT_MST', ['PRODUCT_ID','MAT_CODE','PRODUCT_TYPE','CATEGORY','EXPIRE_DATE'], [])
+        self.write('PRICE_MST', ['PRODUCT_ID','PRICE_ID','PRICE_GROUP','EFFECTIVE_DATE','EXPIRE_DATE'], [])
         for rules in (['--rules','10'], []):
             with self.subTest(rules=rules), patch('database_source.connect_database') as connect, \
                  patch('logging.FileHandler', return_value=logging.NullHandler()), patch('logging.basicConfig'), redirect_stdout(io.StringIO()):
@@ -147,7 +149,7 @@ class DatabaseCsvTests(unittest.TestCase):
                 connect.assert_not_called()
                 summary = json.loads(next(out.glob('run_*/summary.json')).read_text(encoding='utf-8'))
                 self.assertTrue(summary['input_sha256'])
-                self.assertEqual(summary['selected_rules'], [10] if rules else list(range(1,15)))
+                self.assertEqual(summary['selected_rules'], [10] if rules else list(range(1,16)))
 
 
 if __name__ == '__main__':

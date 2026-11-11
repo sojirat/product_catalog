@@ -150,7 +150,7 @@ class Rule12Tests(unittest.TestCase):
             summary_path = next(Path(directory).glob('run_*/summary.json'))
             summary = json.loads(summary_path.read_text(encoding='utf-8'))
             self.assertEqual(summary['rules'][11]['status'], 'FAIL')
-            report_path = next(summary_path.parent.glob('*01-14_ErrorOnly*.xlsx'))
+            report_path = next(summary_path.parent.glob('*01-15_ErrorOnly*.xlsx'))
             workbook = load_workbook(report_path, read_only=True)
             try:
                 self.assertIn('Rule 12 (Errors 1)', workbook.sheetnames)

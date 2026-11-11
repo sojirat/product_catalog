@@ -103,6 +103,7 @@ class DatabaseTests(unittest.TestCase):
     def test_database_cli_reads_project_env_and_exports_reports_without_local_db(self):
         connection = Connection(Cursor())
         with tempfile.TemporaryDirectory() as directory, \
+             patch('database_source.read_mat_code_catalog', return_value={'products':[], 'prices':[]}), \
              patch('database_source.find_product_master', return_value={'001':[{'COMMERCIAL_NAME':'001','SAP_DESCRIPTION':'001'}]}), \
              patch('database_source.open_database', return_value=(connection, 'dbo')) as opener, \
              patch.dict('sys.modules', {'sqlite3': None}), \

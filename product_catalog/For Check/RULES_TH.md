@@ -24,6 +24,7 @@
 | 12 | Resource Specification ที่มี value ของ PO ต้องพบใน View ตามคู่ offer_id + specification_id | PO เดียวเลือกหลาย Resource Specification หรือไม่พบคู่ใน View |
 | 13 | เทียบ Meta POP กับ PRODUCT_MST ตาม matCode = MAT_CODE | matCode ว่าง, ไม่พบ MAT_CODE หรือชื่อไม่ตรง Product Master |
 | 14 | รวม Char จาก Variant และ Onetime POP เทียบ Product Master และ Price Master | Char ไม่ตรง, Onetime POP ไม่ครบหนึ่งแถว, ไม่พบ PRODUCT_MST ที่ใช้ได้ หรือราคาไม่ตรง |
+| 15 | ย้อน MAT_CODE ของสินค้าที่เข้าเงื่อนไขและมีราคาปัจจุบัน ไปตรวจความครบถ้วนใน Product_Variants | ไม่พบ SKU หรือพบ Variant หลายแถวแต่ไม่มี price_group ตรงกลุ่มราคาที่มีผล |
 
 ## รายการยกเว้นการตรวจ Exclude list
 
@@ -624,6 +625,46 @@ CAPACITY ใช้ storage_capacity/storageCapacity เท่านั้น ไ
 ใช้รายการยกเว้น PO/POP ตาม config และ XLSX/CSV fallback เดิม ไฟล์ Product Offer Price ต้องมี price_value โดยรองรับเซลล์ตัวเลขสำหรับคอลัมน์นี้
 ใช้ฐานข้อมูลจาก `.env` หรือ `--env` หากเชื่อมต่อหรือ query ไม่สำเร็จ ให้เป็น Review และ complete=false
 ผลอยู่ในชีต `Rule 14` พร้อม Variant ID, SKU, POP ID, ชื่อ Char, ค่าที่พบและค่าอ้างอิง เฉพาะเมื่อมีปัญหา
+
+## ข้อ 15 ตรวจความครบถ้วนของ MAT_CODE ใน Product Offer
+
+ตรวจย้อนจาก PRODUCT_MST ทุกแถว ไม่มี sampling ไปยังไฟล์ Product Offer ชีต `Product_Variants` โดยใช้กฎกลางฐานข้อมูล/CSV เหมือนข้ออื่น เลือกตรวจเฉพาะข้อได้ด้วย `--rules 15` และรวมข้อ 15 อัตโนมัติเมื่อไม่ระบุ `--rules`
+
+### เลือกสินค้าและราคาที่ใช้ตรวจ
+
+ยึดวันที่เริ่มรันตามเวลาไทย Asia/Bangkok เป็นวันเดียวกันตลอดรอบ โดยไม่เปลี่ยนวันกลางทาง:
+
+1. `PRODUCT_MST.PRODUCT_TYPE` ต้องไม่เท่ากับ `SERVICE`
+2. `PRODUCT_MST.CATEGORY` ต้องไม่เป็น `SAMM`, SQL NULL หรือข้อความว่าง `''`
+3. `PRODUCT_MST.EXPIRE_DATE` ต้องไม่มีค่า คือ NULL หรือข้อความว่าง หรือเป็นวันที่ `1900-01-01` ซึ่งเป็นค่า default ที่ใช้แทนการยังไม่กำหนดวันหมดอายุ หรือมีวันที่ตั้งแต่วันนี้เป็นต้นไป จึงถือว่ายังไม่หมดอายุ รวมสินค้าที่หมดอายุวันนี้ด้วย
+4. เชื่อม PRICE_MST ด้วย `PRODUCT_ID` ต้องมีอย่างน้อยหนึ่งแถวที่ `PRICE_ID` มีค่า, `EFFECTIVE_DATE` ไม่เกินวันนี้ และ `EXPIRE_DATE` ไม่มีค่า, เป็นวันที่ `1900-01-01` หรือไม่น้อยกว่าวันนี้ นำเฉพาะราคาที่เข้าเงื่อนไขนี้ไปใช้ สินค้าที่ไม่มีราคาที่มีผลอยู่ไม่อยู่ในขอบเขตตรวจข้อ 15
+
+การใช้ `1900-01-01` แทน NULL ใช้เฉพาะ EXPIRE_DATE ของสินค้าและราคาในข้อ 15 ทั้งฐานข้อมูลและ CSV รวมรูปแบบที่มีเวลา เช่น `1900-01-01 00:00:00.000` ไม่แปลง EFFECTIVE_DATE วันที่นี้เป็น NULL และไม่เปลี่ยนค่าต้นทางหรือเงื่อนไขของกฎอื่น
+
+เทียบ PRODUCT_TYPE, CATEGORY, MAT_CODE และ PRICE_GROUP แบบตรงตัว ไม่ trim และแยกตัวพิมพ์ใหญ่เล็ก ข้อความที่มีแต่ช่องว่างยังถือว่ามีค่า วันที่เปรียบเทียบระดับวัน ไม่ใช่เวลาระหว่างวัน วันที่ไม่มี timezone ใช้วันตามข้อมูล ส่วนวันที่มี timezone แปลงเป็นเวลาไทยก่อน CSV ใช้รูปแบบ ISO เช่น `2026-11-11` หรือ `2026-11-11 10:58:00` และใช้ `\N` แทน NULL
+
+หากวันหมดอายุสินค้าหรือวันที่ราคามีรูปแบบไม่ถูกต้อง หรือราคาไม่มี EFFECTIVE_DATE จนเลือกข้อมูลไม่ได้ ให้เป็น Review `MAT_CODE_DATE_INVALID` และ `complete=false` ไม่สรุปว่า MAT_CODE ผ่านหรือไม่มีราคา
+
+### ตรวจย้อนกลับไปที่ Variant
+
+1. ตรวจทีละแถว PRODUCT_MST ที่เข้าเงื่อนไข นำ `MAT_CODE` เทียบกับ `Product Variants.sku` โดยไม่ตัดเลขศูนย์นำหน้า หาก MAT_CODE ว่างให้เป็น Error `MAT_CODE_EMPTY`
+2. หากไม่พบ Variant ให้เป็น Error `MAT_CODE_VARIANT_MISSING` พร้อม MAT_CODE, PRODUCT_ID และ PRICE_ID ที่มีผลอยู่
+3. หากพบ Variant หนึ่งแถว ถือว่ามี MAT_CODE ใน Product Offer แล้ว โดยไม่เทียบ price_group ในข้อ 15 ตามขอบเขตที่กำหนด กฎข้ออื่นยังคงตรวจตามเดิม
+4. หากพบ Variant มากกว่าหนึ่งแถว ให้ split `Product Variants.specCharacteristics` และ `Product Variants.value` ด้วย comma แล้วเลือกค่า price_group จาก index เดียวกัน เช่นเดียวกับข้อ 14 รองรับ suffix `-mh_mg...` และการแปลงชื่อ Char แบบ camelCase/snake_case แต่ค่าต้องตรงตัว
+5. ทุก PRICE_GROUP ไม่ซ้ำของราคาที่มีผลอยู่สำหรับ PRODUCT_ID นั้น ต้องพบในอย่างน้อยหนึ่งแถว Variant ของ MAT_CODE เดียวกัน หากไม่พบให้เป็น Error `MAT_CODE_PRICE_GROUP_MISSING` หนึ่งรายการต่อแถวสินค้าและ PRICE_GROUP ไม่จำเป็นต้องจับคู่หนึ่งต่อหนึ่งกับจำนวนแถวราคา และไม่แจ้ง Error เพียงเพราะ Variant ที่ตรงมีหลายแถว
+6. หากราคาที่มีผลอยู่มี PRICE_GROUP ว่าง ให้เป็น Error `MAT_CODE_PRICE_GROUP_EMPTY` เมื่อเข้าสู่ขั้นเทียบกลุ่มราคา หากจับคู่ comma ของ Variant ไม่ได้ให้เป็น Error `MAT_CODE_VARIANT_CHAR_INVALID` และหากยังสรุปไม่ได้ว่ามี price_group ที่ต้องการหรือไม่ ให้เป็น Review สำหรับกลุ่มนั้น ไม่ใช้แถวผิดรูปแบบเป็นหลักฐานว่าผ่าน
+
+ข้าม Variant ของ PO ใน `exclude_po_ids` หาก MAT_CODE พบเฉพาะใน PO ที่ยกเว้นทั้งหมด จะข้ามการตรวจสินค้านั้นและนับใน coverage `15_excluded_po_products` หากมีทั้ง PO ที่ยกเว้นและไม่ยกเว้น จะใช้เฉพาะแถวที่ไม่ยกเว้น ข้อ 15 ไม่ใช้ POP และไม่เชื่อม PRICE_MST ผ่าน POP จึงไม่ใช้ `exclude_pop_ids` กรอง Product Master
+
+### แหล่งข้อมูลและรายงาน
+
+- ข้อมูลหลักที่ต้องใช้มีเฉพาะ `Product_Variants` ของ Product Offer ไม่ต้องใช้ Char_Value หรือไฟล์ POP เมื่อเลือกเฉพาะข้อ 15
+- PRODUCT_MST ต้องมี `PRODUCT_ID`, `MAT_CODE`, `PRODUCT_TYPE`, `CATEGORY`, `EXPIRE_DATE`
+- PRICE_MST ต้องมี `PRODUCT_ID`, `PRICE_ID`, `PRICE_GROUP`, `EFFECTIVE_DATE`, `EXPIRE_DATE`
+- เมื่อใช้ `--csv` ให้อ่าน PRODUCT_MST และ PRICE_MST จาก `Database` โดยไม่เชื่อมฐานข้อมูล รองรับชื่อไฟล์มี timestamp ตามกฎกลาง หากเชื่อมฐานข้อมูลไม่ได้ให้ fallback เช่นเดียวกัน
+- หากข้อมูลอ้างอิงหาย คอลัมน์ไม่ครบ หรือ query ไม่สำเร็จ ให้เป็น Review `MAT_CODE_LOOKUP_UNAVAILABLE` และ `complete=false` ไม่ถือว่า MAT_CODE ไม่พบใน Variant
+- ผลอยู่ในชีต `Rule 15` ของ Error หรือ Review Report ตามระดับปัญหา พร้อม SKU/MAT_CODE และ PRODUCT_ID ใน Related Evidence และแสดงผลใน summary เช่นเดียวกับข้ออื่น รายงาน Error รวมเปลี่ยนชื่อเป็น `Result_check_PO_POP_01-15_ErrorOnly_<วันเวลา>.xlsx`
+- `summary.json` แสดงวันที่ที่ใช้ตรวจใน `coverage.15_run_date_bangkok`, จำนวนแถว PRODUCT_MST ทั้งหมด, จำนวนสินค้าที่เข้าเงื่อนไข และจำนวนกลุ่มราคาที่ตรวจ แถวของ Product Master ที่เข้าเงื่อนไขแต่ไม่พบ Variant ยังคงถูกตรวจและรายงาน ไม่ถูกตัดออกด้วยการ join กับ Variant ก่อน
 
 ## สรุปความครบถ้วน
 

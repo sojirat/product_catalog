@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 
 from test_validator import CONFIG
 from validation_rules import RuleValidator
-from validation_domain import SCHEMAS, RULE_INPUTS
+from validation_domain import SCHEMAS, RULE_INPUTS, RULE_NUMBERS
 from validate_po_pop import main
 from export_source import discover_export_inputs
 
@@ -18,10 +18,10 @@ from export_source import discover_export_inputs
 class RuleSelectionTests(unittest.TestCase):
     def test_multiple_rules_are_deduplicated_and_only_selected_rules_run(self):
         validator=RuleValidator(CONFIG)
-        for number in range(1,15):
+        for number in RULE_NUMBERS:
             setattr(validator,f'rule{number}',Mock())
         validator.run([14,4,4])
-        for number in range(1,15):
+        for number in RULE_NUMBERS:
             self.assertEqual(getattr(validator,f'rule{number}').call_count, int(number in (4,14)))
         summary=validator.summary()
         self.assertEqual([rule['rule'] for rule in summary['rules']],[4,14])
@@ -67,7 +67,7 @@ class RuleSelectionTests(unittest.TestCase):
             self.assertEqual(cv_paths,[])
 
     def test_invalid_rule_is_rejected_before_input_discovery(self):
-        for arguments in [['--rules','0'],['--rules','15'],['--rules']]:
+        for arguments in [['--rules','0'],['--rules','16'],['--rules']]:
             with self.subTest(arguments=arguments), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
                 main(arguments)
             self.assertEqual(error.exception.code,2)

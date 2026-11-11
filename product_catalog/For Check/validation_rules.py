@@ -1,13 +1,13 @@
 """Exact PO/POP rules over source rows, with no local database."""
 from collections import Counter, defaultdict
 from decimal import Decimal, InvalidOperation
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from itertools import islice
 from time import monotonic
 from validation_progress import stage, batch_progress
 
 from validation_domain import SCHEMAS, UNIT, MODEL, MAIN, TYPE, VERSION, CV_DUPLICATE_KEY, parse_pairs
-from validation_domain import PRODUCT_CHAR_COLUMNS, char_key
+from validation_domain import PRODUCT_CHAR_COLUMNS, char_key, RULE_NUMBERS
 
 
 def group(rows, *fields):
@@ -31,7 +31,9 @@ class RuleValidator:
         self.variant_master_lookup = None
         self.main_model_lookup = None
         self.main_model_passes = []
-        self.selected_rules = list(range(1,15))
+        self.selected_rules = list(RULE_NUMBERS)
+        self.mat_code_catalog_lookup = None
+        self.run_date = datetime.now(timezone(timedelta(hours=7))).date()
         self.ex_po = set(config['exclude_po_ids'])
         self.ex_pop = set(config['exclude_pop_ids'])
 
@@ -95,20 +97,20 @@ class RuleValidator:
         return next(iter(owners)) if len(owners) == 1 else None
 
     def run(self, rules=None):
-        self.selected_rules = sorted(set(rules)) if rules is not None else list(range(1,15))
-        if not self.selected_rules or any(number not in range(1,15) for number in self.selected_rules):
-            raise ValueError('Select at least one rule between 1 and 14')
+        self.selected_rules = sorted(set(rules)) if rules is not None else list(RULE_NUMBERS)
+        if not self.selected_rules or any(number not in RULE_NUMBERS for number in self.selected_rules):
+            raise ValueError('Select at least one rule between 1 and 15')
         stage(25, 'Building validation indexes')
         self.indexes()
         total=len(self.selected_rules)
         for position, number in enumerate(self.selected_rules,1):
-            stage(25 + (position-1)*50/total, f'Checking Rule {number}/14 (selected {position}/{total})')
+            stage(25 + (position-1)*50/total, f'Checking Rule {number}/{max(RULE_NUMBERS)} (selected {position}/{total})')
             started = monotonic()
             first_issue = len(self.issues)
             getattr(self, f'rule{number}')()
             counts = Counter(issue['severity'] for issue in islice(self.issues, first_issue, None))
             stage(25 + position*50/total,
-                  f'Rule {number}/14 finished in {monotonic()-started:.1f}s; '
+                  f'Rule {number}/{max(RULE_NUMBERS)} finished in {monotonic()-started:.1f}s; '
                   f'Error={counts["ERROR"]}, Review={counts["REVIEW"]}, Warning={counts["WARNING"]}')
 
     def rule11(self):
@@ -709,6 +711,10 @@ class RuleValidator:
                 error('VARIANT_PRICE_MISMATCH', f'POP.price_value={pop["price_value"]!r} ไม่ตรงกับ PRICE_MST.INC_VAT={inc_vat!r} ของ PRICE_GROUP={price_group!r}',
                       val=pop['price_value'], expected=str(inc_vat), related='PRODUCT_ID='+str(matching[0]['PRODUCT_ID'])+'; EFFECTIVE_DATE='+str(matching[0].get('EFFECTIVE_DATE')))
 
+    def rule15(self):
+        from rule15 import check_mat_code_coverage
+        check_mat_code_coverage(self)
+
     def summary(self):
         rules = []
         for number in self.selected_rules:
@@ -717,7 +723,7 @@ class RuleValidator:
             rules.append(dict(rule=number, status='FAIL' if errors else 'INCOMPLETE' if review else 'PASS',
                               error_cases=errors, review_cases=review, warning_cases=counts['WARNING'], complete=review == 0))
         return dict(version=VERSION, rules=rules, selected_rules=self.selected_rules,
-                    skipped_rules=sorted(set(range(1,15))-set(self.selected_rules)),
+                    skipped_rules=sorted(set(RULE_NUMBERS)-set(self.selected_rules)),
                     input_issues=sum(i['rule'] == 'INPUT' for i in self.issues),
                     inputs=self.inputs, coverage=self.coverage, source_counts={t: len(r) for t, r in self.rows.items()},
                     cv_blank_value_records=sum(r['val'] == '' for r in self.rows['cv']),

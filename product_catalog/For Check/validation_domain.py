@@ -2,6 +2,7 @@
 import re
 
 VERSION = '1.2.0'
+RULE_NUMBERS = tuple(range(1, 16))
 UNIT = 'unit_name-mh_mg00562'
 MODEL = 'model-mh_mg00556'
 MAIN = 'main_model-mh_mg00554'
@@ -27,7 +28,7 @@ RULE_INPUTS = {
     1: {'m','t'}, 2: {'v','l','t'}, 3: {'t','l','v'}, 4: {'c'},
     5: {'m','c'}, 6: {'m','c','l','v'}, 7: {'m','c','l','v','cv'}, 8: {'m','o','c','cv'},
     9: {'po','m','o','v','l','c','cv'}, 10: {'cv'}, 11: {'v','l','pt','ch'},
-    12: {'cv'}, 13: {'t'}, 14: {'v','l','pv','c'},
+    12: {'cv'}, 13: {'t'}, 14: {'v','l','pv','c'}, 15: {'v'},
 }
 PRODUCT_CHAR_COLUMNS = ('MAIN_MODEL', 'BRAND', 'COMPANY', 'COLOR', 'CAPACITY', 'PRODUCT_TYPE',
                         'PRODUCT_SUBTYPE', 'MAT_TYPE', 'MODEL', 'UNIT_NAME')

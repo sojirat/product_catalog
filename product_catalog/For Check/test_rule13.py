@@ -190,7 +190,7 @@ class Rule13Tests(unittest.TestCase):
             summary_path = next(Path(directory).glob('run_*/summary.json'))
             summary = json.loads(summary_path.read_text(encoding='utf-8'))
             self.assertEqual(summary['rules'][12]['error_cases'],3)
-            path = next(summary_path.parent.glob('*01-14_ErrorOnly*.xlsx'))
+            path = next(summary_path.parent.glob('*01-15_ErrorOnly*.xlsx'))
             workbook = load_workbook(path,read_only=True)
             try:
                 self.assertIn('Rule 13 (Errors 3)',workbook.sheetnames)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PO/POP rules 1–14. Python 3.10+. Export or SQL Server input, exact comparisons, full scans.
+"""PO/POP rules 1–15. Python 3.10+. Export or SQL Server input, exact comparisons, full scans.
 
 Defaults to the latest project export. --database reads SQL Server using
 product_catalog/.env. Validation runs in Python memory.
@@ -28,7 +28,7 @@ from openpyxl.utils import get_column_letter
 from validation_domain import VERSION, UNIT, MODEL, MAIN, TYPE, BLANK, SCHEMAS, parse_pairs
 from validation_rules import RuleValidator
 from validation_domain import CV_DETAIL_FIELDS, CV_DETAIL_HEADERS
-from validation_domain import RULE_INPUTS
+from validation_domain import RULE_INPUTS, RULE_NUMBERS
 from validation_progress import stage
 
 LOG = logging.getLogger("po_pop")
@@ -210,7 +210,7 @@ def export_report(v, path, severity, verify=True, rows_per_sheet=DEFAULT_REPORT_
   if sheet is not None:
    sheet.auto_filter.ref=f'A1:{get_column_letter(len(header))}{rowcounts[sheet.title]}'
  LOG.info('Report %s: writing %s cases',path.name,len(selected))
- buckets={str(number):[] for number in range(1,15)}
+ buckets={str(number):[] for number in RULE_NUMBERS}
  if any(r['rule']=='INPUT' for r in selected):buckets={'INPUT':[],**buckets}
  for r in selected:
   buckets[r['rule'].split('.')[0]].append(r)
@@ -310,7 +310,7 @@ def _main(argv=None):
  ap.add_argument('--char-value',type=Path,nargs='+',help='CSV/ZIP หนึ่งหรือหลายไฟล์; ไม่ระบุจะใช้ Sheet Char_Value ใน PO')
  ap.add_argument('--config',type=Path,default=Path(__file__).with_name('config.json'))
  ap.add_argument('--out',type=Path,default=Path(__file__).resolve().parents[2]/'results')
- ap.add_argument('--rules',type=int,nargs='+',choices=range(1,15),help='Rules to check, e.g. --rules 10 13 14; omitted: all rules')
+ ap.add_argument('--rules',type=int,nargs='+',choices=RULE_NUMBERS,help='Rules to check, e.g. --rules 10 13 14 15; omitted: all rules 1-15')
  ap.add_argument('--report-rows-per-sheet',type=int,default=DEFAULT_REPORT_ROWS_PER_SHEET,
                  help='Maximum data rows per report sheet, excluding header (default: %(default)s)')
  args=ap.parse_args(argv)
@@ -320,7 +320,7 @@ def _main(argv=None):
  if args.csv and args.check_connection:ap.error('--csv cannot be combined with --check-connection')
  if args.csv and not any((args.folder,args.input_dir,args.latest_export,args.po,args.pop,args.meta)):
   args.database=True
- selected_rules=sorted(set(args.rules)) if args.rules else list(range(1,15))
+ selected_rules=sorted(set(args.rules)) if args.rules else list(RULE_NUMBERS)
  required_tables=set().union(*(RULE_INPUTS[number] for number in selected_rules))
  if not 1 <= args.report_rows_per_sheet <= EXCEL_MAX_DATA_ROWS:
   ap.error(f'--report-rows-per-sheet must be between 1 and {EXCEL_MAX_DATA_ROWS}')
@@ -386,6 +386,7 @@ def _main(argv=None):
    manifest[str(p.resolve())]=digest(p)
   (out/'config_used.json').write_text(json.dumps(conf,ensure_ascii=False,indent=2),encoding='utf-8')
   v=Validator(conf)
+  v.run_date=now.date()
   stage(10, 'Reading input data')
   LOG.info('Selected rules: %s', ', '.join(map(str,selected_rules)))
   if args.input_dir:
@@ -410,6 +411,8 @@ def _main(argv=None):
   v.resource_spec_lookup=lambda pairs:find_resource_spec_pairs(args.env,pairs)
   v.product_master_lookup=lambda codes:find_product_master(args.env,codes)
   v.variant_master_lookup=lambda codes:find_variant_masters(args.env,codes)
+  from database_source import read_mat_code_catalog
+  v.mat_code_catalog_lookup=lambda:read_mat_code_catalog(args.env)
   stage(25, 'Input data loaded; starting rules')
   v.run(selected_rules)
   summary=v.summary();summary['input_sha256']=manifest;summary['run_time_bangkok']=now.isoformat()
@@ -419,7 +422,7 @@ def _main(argv=None):
   LOG.info('Exporting Error-only Excel report')
   stage(80, 'Writing and verifying Error report')
   summary['report_rows_per_sheet']=args.report_rows_per_sheet
-  summary['error_report_rows']=export_report(v,out/f'Result_check_PO_POP_01-14_ErrorOnly_{stamp}.xlsx','ERROR',rows_per_sheet=args.report_rows_per_sheet)
+  summary['error_report_rows']=export_report(v,out/f'Result_check_PO_POP_01-15_ErrorOnly_{stamp}.xlsx','ERROR',rows_per_sheet=args.report_rows_per_sheet)
   if v.main_model_passes:
    summary['main_model_null_report_rows']=export_report(v,out/f'Result_Rule7_NoMainModel_{stamp}.xlsx','PASS',rows_per_sheet=args.report_rows_per_sheet)
   if any(i['severity']!='ERROR' for i in v.issues):

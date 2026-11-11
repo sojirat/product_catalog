@@ -206,6 +206,22 @@ def find_variant_masters(env_path, codes):
         connection.close()
 
 
+def read_mat_code_catalog(env_path):
+    """Read every reference row for rule 15 using the shared DB/CSV boundary."""
+    connection, schema = open_database(env_path)
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(f'SELECT [PRODUCT_ID], [MAT_CODE], [PRODUCT_TYPE], [CATEGORY], [EXPIRE_DATE] '
+                           f'FROM {identifier(schema)}.[PRODUCT_MST]')
+            products = cursor.fetchall()
+            cursor.execute(f'SELECT [PRODUCT_ID], [PRICE_ID], [PRICE_GROUP], [EFFECTIVE_DATE], [EXPIRE_DATE] '
+                           f'FROM {identifier(schema)}.[PRICE_MST]')
+            prices = cursor.fetchall()
+            return {'products': products, 'prices': prices}
+    finally:
+        connection.close()
+
+
 def check_connection(env_path):
     # This diagnostic must test the real server, without CSV fallback.
     if not env_path.is_file():

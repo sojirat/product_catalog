@@ -282,7 +282,7 @@ class Rule14Tests(unittest.TestCase):
             summary_path=next(Path(directory).glob('run_*/summary.json'))
             summary=json.loads(summary_path.read_text(encoding='utf-8'))
             self.assertEqual(summary['rules'][13]['status'],'FAIL')
-            path=next(summary_path.parent.glob('*01-14_ErrorOnly*.xlsx'))
+            path=next(summary_path.parent.glob('*01-15_ErrorOnly*.xlsx'))
             wb=load_workbook(path,read_only=True)
             try:
                 self.assertTrue(any(name.startswith('Rule 14 (Errors') for name in wb.sheetnames))

@@ -501,10 +501,16 @@ def build_effective_datasets(
         if source_name not in raw_datasets or union_name not in effective:
             continue
 
-        _, src_rows = raw_datasets[source_name]
+        src_columns, src_rows = raw_datasets[source_name]
         tgt_columns, tgt_rows = effective[union_name]
 
-        merged = list(tgt_rows) + list(src_rows)
+        aligned_rows = align_union_rows(
+            source_name, src_columns, src_rows, union_name, tgt_columns
+        )
+        if aligned_rows is None:
+            continue
+
+        merged = list(tgt_rows) + aligned_rows
         effective[union_name] = (tgt_columns, merged)
 
         print(
@@ -513,6 +519,48 @@ def build_effective_datasets(
         )
 
     return effective
+
+
+def align_union_rows(
+    source_name: str,
+    src_columns: list[str],
+    src_rows: list[dict],
+    union_name: str,
+    tgt_columns: list[str],
+) -> list[dict] | None:
+    """Re-key UNION source rows to the target's columns (matched by name, case-insensitive).
+
+    Target columns missing from the source are left blank. Returns None (skip the merge)
+    when the two views share no column names, since the rows could not be placed.
+    """
+    src_by_key = {str(c).strip().lower(): c for c in src_columns}
+    column_map = {
+        tgt: src_by_key.get(str(tgt).strip().lower())
+        for tgt in tgt_columns
+    }
+    matched_sources = {src for src in column_map.values() if src is not None}
+
+    if not matched_sources:
+        print(
+            f"WARNING: skip UNION {source_name} -> {union_name}: no matching column names.\n"
+            f"  source columns: {list(src_columns)}\n"
+            f"  target columns: {list(tgt_columns)}"
+        )
+        return None
+
+    missing = [tgt for tgt, src in column_map.items() if src is None]
+    dropped = [c for c in src_columns if c not in matched_sources]
+    if missing or dropped:
+        print(
+            f"WARNING: UNION {source_name} -> {union_name} column mismatch"
+            f"{f'; blank in target: {missing}' if missing else ''}"
+            f"{f'; dropped from source: {dropped}' if dropped else ''}"
+        )
+
+    return [
+        {tgt: (row.get(src) if src is not None else None) for tgt, src in column_map.items()}
+        for row in src_rows
+    ]
 
 
 #

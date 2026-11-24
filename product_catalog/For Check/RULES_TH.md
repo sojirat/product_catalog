@@ -687,9 +687,34 @@ CAPACITY ใช้ storage_capacity/storageCapacity เท่านั้น ไ
 รายงานชีต `Rule 16` แสดง ID ปัจจุบันใน `value`, ID เก่าใน `Expected Condition` และเลข running พร้อมไฟล์/แถว baseline ใน `Related Evidence` เก็บ hash ของไฟล์ทั้งสองฝั่งใน summary
 เลือกเฉพาะข้อ 16 ด้วย `--rules 16` เปลี่ยนที่อยู่ baseline ด้วย `--old-id-dir` หากใช้โหมดฐานข้อมูลหรือไฟล์รวมโดยไม่มีรอบ export จะเป็น Review เนื่องจากไม่มี CSV ปัจจุบันสำหรับเปรียบเทียบ
 
+## ข้อ 17 กฎพิเศษตรวจ Pilot Data
+
+ข้อ 17 ไม่รันในคำสั่งตรวจรวม ต้องระบุ `--rules 17` หรือระบุ 17 ร่วมกับข้ออื่นโดยตรง
+อ่าน `Pilot/pilot_DDMMYYYYHHMMSS.csv` ที่มี timestamp ล่าสุดตามวันเวลาจริง ไม่เรียงตามชื่อไฟล์หรือเวลาแก้ไข และต้องมีหัวตาราง `No.,Commercial Name,PRODUCTTYPE,BRAND,MODEL` เปลี่ยนโฟลเดอร์ได้ด้วย `--pilot-dir`
+
+ตรวจทีละแถว Pilot ตามลำดับ:
+
+1. Split `Product Variants.specCharacteristics` และ `Product Variants.value` ด้วย comma แล้วจับคู่ตาม index เดียวกัน หา characteristic `model` เช่น `model-mh_mg00556` และนำ value ของ model ไปหา characteristic ที่ชื่อเดียวกัน โดยตัด suffix `-mh_mg...` และรองรับ camelCase กับ snake_case
+2. นำ value ของ characteristic ที่พบจากขั้นตอนแรกเทียบกับ `MODEL` ของ Pilot หากไม่พบ Variant ที่ตรงให้แจ้ง Error
+3. ใช้ `Product Variants.Product Id` ของแต่ละ Variant ที่ MODEL ตรง ไปหา `Char Value.Product Offer ID` ใน Char_Value ของ PO เดียวกัน ต้องมีแถวที่ `Char Value.Product Offer Characteristics Name` เป็น `productType` และ value ตรง `PRODUCTTYPE` และแถวชื่อ `brand` ที่ value ตรง `BRAND` ชื่อ characteristic รองรับ camelCase/snake_case ส่วน value เทียบตรงตัว
+4. นำ `Product Variants.variantId` ของ Variant ที่ผ่าน ไปหา `variantProductOfferingPrice.variantId` ใน Variant_ProductOffering_Price แล้วนำ POP ID ทุกตัวที่เชื่อมไปหา `Product Offer Price ID` ใน POP_metaExt_productInfo
+5. ต้องมี `commercialName` ตรงกับ `Commercial Name` ของ Pilot ภายใต้ POP ที่เชื่อมกับ Variant นั้น หากพบอย่างน้อยหนึ่งเส้นทางที่ผ่านครบ ถือว่าแถว Pilot ผ่าน หากไม่พบให้แจ้ง Error `PILOT_NOT_FOUND` ในรายงานข้อ 17 พร้อมบอกขั้นที่ไม่ตรง และอ้างอิงชีต `Rule 17 Detail`
+
+ค่า MODEL, PRODUCTTYPE, BRAND และ Commercial Name เทียบตรงตัว แยกตัวพิมพ์ใหญ่เล็ก ไม่ trim ไม่รวมข้อมูลข้าม PO/Variant/POP เพื่อให้ผ่าน ใช้รายการยกเว้น PO/POP ตาม config
+Variant ที่จับคู่สมาชิกไม่ได้จะไม่ใช้เป็นหลักฐานการผ่าน และนับใน coverage `17_malformed_variant_rows`
+
+สร้างไฟล์ `Result_Rule17_Pilot_<วันเวลา>.xlsx` สำหรับทุกเส้นทางที่ผ่านครบ โดยมีหัวตารางเรียงดังนี้:
+
+`No.`, `Product Offer`, `Variant ID`, `Product Offer Price`, `PRODUCTTYPE`, `BRAND`, `MODEL`
+
+No., PRODUCTTYPE, BRAND และ MODEL ใช้ค่าจากแถว Pilot ส่วน ID ใช้ข้อมูลที่จับคู่ได้จริง หนึ่งแถว Pilot อาจได้หลายรายการหากมีหลาย Variant/POP ที่ผ่าน เส้นทางซ้ำภายในแถว Pilot เดียวกันแสดงครั้งเดียว ถ้าไม่มีรายการผ่าน Excel ยังมีหัวตาราง ข้อมูลเกินขีดจำกัดต่อชีตจะแบ่งชีตตาม `--report-rows-per-sheet` และตรวจทุกเซลล์หลังเขียนไฟล์
+หากไม่พบ Pilot หรือหัวตารางไม่ครบให้เป็น Review ไม่สรุปว่าผ่าน ระบบอ่าน XLSX/CSV ของ Variant, Char_Value, link และ Meta ผ่าน fallback เดิม และเก็บ hash ของ Pilot ที่เลือกใน summary
+
 ## สรุปความครบถ้วน
 
 ทุก Record ถูกอ่าน ไม่มี Sampling ข้อที่มี Review ยังคงแสดง `complete=false`
 รายการ Review ไม่ถูกนับเป็น Error หรือ Pass โดยปริยาย
 หนึ่งต้นเหตุอาจผิดหลายข้อ เช่น POP ไม่มี Characteristic และ Variant ไม่มี model ทำให้ข้อ 5 และข้อ 6 ผิด
 ห้ามรวมจำนวน Error แล้วตีความเป็นจำนวน PO/POP ที่ไม่ซ้ำ
+
+รายงาน Error ข้อ 17 มีชีต `Rule 17 Detail` แยกตาม No. และเส้นทาง PO/Variant/POP แสดงขั้นตอน สถานะ ค่าที่ต้องการ ค่าที่พบจริง และไฟล์/แถวหลักฐาน สถานะ `พบค่าที่ตรง` หมายถึงพบค่าตาม Pilot ในเส้นทางนั้น `ไม่พบค่าที่ตรง` หมายถึงตรวจแล้วไม่มีค่าตรง ส่วน `ยังไม่ตรวจ` หมายถึงขั้นก่อนหน้าไม่ผ่าน จึงยังไม่ค้นขั้นนั้น รายละเอียดนี้แสดงเฉพาะแถว Pilot ที่ไม่มีเส้นทางผ่านครบ เพื่อไม่รวมผลคนละ PO/Variant/POP แล้วทำให้เข้าใจว่าผ่าน

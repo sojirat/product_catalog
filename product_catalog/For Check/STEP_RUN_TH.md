@@ -238,3 +238,15 @@ explorer ".\results"
 ```
 
 เปลี่ยนโฟลเดอร์ baseline ได้ด้วย `--old-id-dir "path\to\Old ID"` คำสั่งตรวจทุกกฎจะรวมข้อ 16 อัตโนมัติ ผลอยู่ในชีต `Rule 16` และ summary ตามปกติ หาก baseline หรือ CSV ปัจจุบันขาดจะแสดง Review
+## ตรวจ Pilot ด้วยกฎพิเศษข้อ 17
+
+วางไฟล์ `pilot_DDMMYYYYHHMMSS.csv` ใน `Pilot/` ที่ root โปรแกรมเลือก timestamp ล่าสุดโดยอัตโนมัติ หัวตารางต้องเป็น `No.,Commercial Name,PRODUCTTYPE,BRAND,MODEL`
+ข้อ 17 ไม่รวมในคำสั่งตรวจทุกกฎ ต้องระบุโดยตรง:
+
+```powershell
+& ".\product_catalog\For Check\run_check.cmd" "24112026100000" --rules 17
+```
+
+เปลี่ยนโฟลเดอร์ Pilot ได้ด้วย `--pilot-dir "path\to\Pilot"` ตรวจหลายข้อพร้อมกันได้ เช่น `--rules 16 17`
+ผลที่ผ่านครบอยู่ใน `Result_Rule17_Pilot_<วันเวลา>.xlsx` ในโฟลเดอร์ผลตรวจ ส่วนแถว Pilot ที่หาเส้นทางผ่านครบไม่ได้ อยู่ในชีต `Rule 17` ของรายงาน Error
+หากข้อ 17 ไม่ผ่าน ให้เปิด Error file ชีต `Rule 17 Detail` แล้วกรอง No. ของ Pilot อ่านคอลัมน์ ขั้นตอน / สถานะ / ค่าที่ต้องการ / ค่าที่พบ พร้อม PO, Variant และ POP ของเส้นทางเดียวกัน สถานะ `ยังไม่ตรวจ` หมายถึงขั้นก่อนหน้าไม่ผ่าน ไม่ได้แปลว่าตรวจแล้วไม่พบข้อมูล

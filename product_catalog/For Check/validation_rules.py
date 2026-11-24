@@ -7,7 +7,7 @@ from time import monotonic
 from validation_progress import stage, batch_progress
 
 from validation_domain import SCHEMAS, UNIT, MODEL, MAIN, TYPE, VERSION, CV_DUPLICATE_KEY, parse_pairs
-from validation_domain import PRODUCT_CHAR_COLUMNS, char_key, RULE_NUMBERS
+from validation_domain import PRODUCT_CHAR_COLUMNS, char_key, RULE_NUMBERS, DEFAULT_RULE_NUMBERS
 
 
 def group(rows, *fields):
@@ -31,7 +31,10 @@ class RuleValidator:
         self.variant_master_lookup = None
         self.main_model_lookup = None
         self.main_model_passes = []
-        self.selected_rules = list(RULE_NUMBERS)
+        self.selected_rules = list(DEFAULT_RULE_NUMBERS)
+        self.pilot_matches = []
+        self.pilot_diagnostics = []
+        self.pilot_lookup = None
         self.mat_code_catalog_lookup = None
         self.id_snapshot_check = None
         self.run_date = datetime.now(timezone(timedelta(hours=7))).date()
@@ -98,20 +101,20 @@ class RuleValidator:
         return next(iter(owners)) if len(owners) == 1 else None
 
     def run(self, rules=None):
-        self.selected_rules = sorted(set(rules)) if rules is not None else list(RULE_NUMBERS)
+        self.selected_rules = sorted(set(rules)) if rules is not None else list(DEFAULT_RULE_NUMBERS)
         if not self.selected_rules or any(number not in RULE_NUMBERS for number in self.selected_rules):
             raise ValueError('Select at least one rule between 1 and 15')
         stage(25, 'Building validation indexes')
         self.indexes()
         total=len(self.selected_rules)
         for position, number in enumerate(self.selected_rules,1):
-            stage(25 + (position-1)*50/total, f'Checking Rule {number}/{max(RULE_NUMBERS)} (selected {position}/{total})')
+            stage(25 + (position-1)*50/total, f'Checking Rule {number}/{max(self.selected_rules)} (selected {position}/{total})')
             started = monotonic()
             first_issue = len(self.issues)
             getattr(self, f'rule{number}')()
             counts = Counter(issue['severity'] for issue in islice(self.issues, first_issue, None))
             stage(25 + position*50/total,
-                  f'Rule {number}/{max(RULE_NUMBERS)} finished in {monotonic()-started:.1f}s; '
+                  f'Rule {number}/{max(self.selected_rules)} finished in {monotonic()-started:.1f}s; '
                   f'Error={counts["ERROR"]}, Review={counts["REVIEW"]}, Warning={counts["WARNING"]}')
 
     def rule11(self):
@@ -721,6 +724,18 @@ class RuleValidator:
             self.add(16, 'REVIEW', 'ID_SNAPSHOT_UNAVAILABLE', 'ไม่ได้กำหนด CSV ปัจจุบันและ Old ID สำหรับข้อ 16')
             return
         self.id_snapshot_check(self)
+
+    def rule17(self):
+        from rule17 import check_pilot
+        try:
+            if self.pilot_lookup is None:
+                raise ValueError('Pilot input is not configured')
+            path, rows = self.pilot_lookup()
+        except (OSError, ValueError) as error:
+            self.add(17, 'REVIEW', 'PILOT_INPUT_UNAVAILABLE', 'อ่านไฟล์ Pilot ไม่สำเร็จ', related=str(error))
+            return
+        self.inputs.append({'source': str(path), 'sheet': 'Pilot', 'table': 'pilot', 'records': len(rows)})
+        check_pilot(self, rows, path)
 
     def summary(self):
         rules = []

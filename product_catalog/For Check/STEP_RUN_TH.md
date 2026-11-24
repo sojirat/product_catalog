@@ -1,4 +1,4 @@
-# วิธีรันตรวจข้อมูล PO/POP ข้อ 1–15
+# วิธีรันตรวจข้อมูล PO/POP ข้อ 1–16
 
 เลือกอ่านเฉพาะหมวดของระบบที่ใช้ ทุกคำสั่งรันจากโฟลเดอร์หลักของโปรเจกต์ที่มี `Makefile`, `export` และโฟลเดอร์ `product_catalog`
 
@@ -26,10 +26,10 @@ make setup-check
 ### 2. เลือกคำสั่งตรวจ
 
 ```sh
-# ตรวจทุกข้อ 1–15 ด้วย database
+# ตรวจทุกข้อ 1–16 ด้วย database
 make check-db
 
-# ตรวจทุกข้อ 1–15 ด้วย CSV ใน Database โดยไม่เชื่อมฐานข้อมูล
+# ตรวจทุกข้อ 1–16 ด้วย CSV ใน Database โดยไม่เชื่อมฐานข้อมูล
 make check-db CHECK_ARGS="--csv"
 
 # ตรวจหลายข้อด้วย database
@@ -75,7 +75,7 @@ open results
 | ไฟล์ | ใช้ดูอะไร |
 |---|---|
 | `summary.txt` | สรุปกฎที่เลือกและจำนวน Error / Review / Warning เริ่มอ่านไฟล์นี้ก่อน |
-| `Result_check_PO_POP_01-15_ErrorOnly_*.xlsx` | รายละเอียด Error แยกตาม Rule |
+| `Result_check_PO_POP_01-16_ErrorOnly_*.xlsx` | รายละเอียด Error แยกตาม Rule |
 | `Result_Review_Warning_*.xlsx` | รายการ Review และ Warning |
 | `Result_Rule7_NoMainModel_*.xlsx` | Variant ที่ผ่านข้อ 7 เพราะ MAIN_MODEL ไม่มีข้อมูล |
 | `summary.json` | จำนวนข้อมูล, coverage, วันที่ตรวจ และ SHA-256 ของไฟล์ต้นทาง |
@@ -142,10 +142,10 @@ python -m pip install -r ".\product_catalog\For Check\requirements.txt"
 ### 2. เลือกคำสั่งตรวจ
 
 ```powershell
-# ตรวจทุกข้อ 1–15 ด้วย database
+# ตรวจทุกข้อ 1–16 ด้วย database
 & ".\product_catalog\For Check\run_check.cmd" --database
 
-# ตรวจทุกข้อ 1–15 ด้วย CSV ใน Database โดยไม่เชื่อมฐานข้อมูล
+# ตรวจทุกข้อ 1–16 ด้วย CSV ใน Database โดยไม่เชื่อมฐานข้อมูล
 & ".\product_catalog\For Check\run_check.cmd" --csv
 
 # ตรวจหลายข้อด้วย database
@@ -191,7 +191,7 @@ explorer ".\results"
 | ไฟล์ | ใช้ดูอะไร |
 |---|---|
 | `summary.txt` | สรุปกฎที่เลือกและจำนวน Error / Review / Warning เริ่มอ่านไฟล์นี้ก่อน |
-| `Result_check_PO_POP_01-15_ErrorOnly_*.xlsx` | รายละเอียด Error แยกตาม Rule |
+| `Result_check_PO_POP_01-16_ErrorOnly_*.xlsx` | รายละเอียด Error แยกตาม Rule |
 | `Result_Review_Warning_*.xlsx` | รายการ Review และ Warning |
 | `Result_Rule7_NoMainModel_*.xlsx` | Variant ที่ผ่านข้อ 7 เพราะ MAIN_MODEL ไม่มีข้อมูล |
 | `summary.json` | จำนวนข้อมูล, coverage, วันที่ตรวจ และ SHA-256 ของไฟล์ต้นทาง |
@@ -228,3 +228,13 @@ explorer ".\results"
 หาก CSV อ้างอิงหายหรือคอลัมน์ไม่ครบ อาจเกิด Review หรือหยุดรอบตรวจ ให้ดู `run.log` และ `FAILED.json` หากมี ข้อผิดพลาดก่อนเริ่มรันอาจยังไม่มีโฟลเดอร์ผลตรวจ
 
 ข้อ 15 ใช้วันรันตามเวลาไทย และถือ EXPIRE_DATE วันที่ `1900-01-01` เป็นไม่มีวันหมดอายุทั้งสินค้าและราคา ดูคอลัมน์ที่ต้องใช้ใน [RULES_TH.md](RULES_TH.md)
+
+## ตรวจเฉพาะข้อ 16 เทียบ Unique ID กับ baseline
+
+วาง baseline ทั้งหกประเภทใน `Old ID/` ที่ root และเก็บ CSV ปัจจุบันใน `export/<รอบ>/csv/` จากนั้นรันจากโฟลเดอร์หลัก:
+
+```powershell
+& ".\product_catalog\For Check\run_check.cmd" "24112026100000" --rules 16
+```
+
+เปลี่ยนโฟลเดอร์ baseline ได้ด้วย `--old-id-dir "path\to\Old ID"` คำสั่งตรวจทุกกฎจะรวมข้อ 16 อัตโนมัติ ผลอยู่ในชีต `Rule 16` และ summary ตามปกติ หาก baseline หรือ CSV ปัจจุบันขาดจะแสดง Review

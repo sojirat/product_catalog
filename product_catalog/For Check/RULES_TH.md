@@ -663,8 +663,29 @@ CAPACITY ใช้ storage_capacity/storageCapacity เท่านั้น ไ
 - PRICE_MST ต้องมี `PRODUCT_ID`, `PRICE_ID`, `PRICE_GROUP`, `EFFECTIVE_DATE`, `EXPIRE_DATE`
 - เมื่อใช้ `--csv` ให้อ่าน PRODUCT_MST และ PRICE_MST จาก `Database` โดยไม่เชื่อมฐานข้อมูล รองรับชื่อไฟล์มี timestamp ตามกฎกลาง หากเชื่อมฐานข้อมูลไม่ได้ให้ fallback เช่นเดียวกัน
 - หากข้อมูลอ้างอิงหาย คอลัมน์ไม่ครบ หรือ query ไม่สำเร็จ ให้เป็น Review `MAT_CODE_LOOKUP_UNAVAILABLE` และ `complete=false` ไม่ถือว่า MAT_CODE ไม่พบใน Variant
-- ผลอยู่ในชีต `Rule 15` ของ Error หรือ Review Report ตามระดับปัญหา พร้อม SKU/MAT_CODE และ PRODUCT_ID ใน Related Evidence และแสดงผลใน summary เช่นเดียวกับข้ออื่น รายงาน Error รวมเปลี่ยนชื่อเป็น `Result_check_PO_POP_01-15_ErrorOnly_<วันเวลา>.xlsx`
+- ผลอยู่ในชีต `Rule 15` ของ Error หรือ Review Report ตามระดับปัญหา พร้อม SKU/MAT_CODE และ PRODUCT_ID ใน Related Evidence และแสดงผลใน summary เช่นเดียวกับข้ออื่น รายงาน Error รวมเปลี่ยนชื่อเป็น `Result_check_PO_POP_01-16_ErrorOnly_<วันเวลา>.xlsx`
 - `summary.json` แสดงวันที่ที่ใช้ตรวจใน `coverage.15_run_date_bangkok`, จำนวนแถว PRODUCT_MST ทั้งหมด, จำนวนสินค้าที่เข้าเงื่อนไข และจำนวนกลุ่มราคาที่ตรวจ แถวของ Product Master ที่เข้าเงื่อนไขแต่ไม่พบ Variant ยังคงถูกตรวจและรายงาน ไม่ถูกตัดออกด้วยการ join กับ Variant ก่อน
+
+## ข้อ 16 ตรวจ Unique ID ว่าไม่มีการเปลี่ยนแปลง
+
+เทียบ CSV ของรอบปัจจุบันใน `export/<รอบ>/csv/` กับ CSV baseline ใน `Old ID/` ที่ root ของโปรเจกต์ โดยตรวจครบทุกแถวแยกตามประเภท:
+
+| โฟลเดอร์ | ชื่อไฟล์เริ่มต้น | คอลัมน์ ID |
+|---|---|---|
+| Master Characteristics | master_characteristics_ | Characteristics ID |
+| Product Offer | ProductOffer_ | Product Id |
+| Product Offer Category | productOfferCategory_ | Category ID |
+| Product Offer Price | productOfferPrice_ | Product Offer Price ID |
+| Product Specification | product_specification_ | Spec ID |
+| Resource Specification | resource_specification_ | Spec ID |
+
+ดึงตัวเลขต่อเนื่องท้าย ID เป็น running number และเทียบเฉพาะประเภทเดียวกัน หากเลข running พบทั้งปัจจุบันและ baseline ต้องมี ID เต็มตรงกันทุกตัวอักษร ไม่ trim และแยกตัวพิมพ์ใหญ่เล็ก เก็บเลขศูนย์นำหน้าไว้
+ตัวอย่าง `365_selection_gadget_resource_specification-rs_mg50001` จับคู่ด้วย `50001` และผ่านเมื่อ ID เต็มเหมือนเดิม หากเปลี่ยนชื่อด้านหน้าแต่ยังลงท้ายด้วย `50001` ให้เป็น Error `UNIQUE_ID_CHANGED`
+เลขที่พบเฉพาะฝั่งเก่าหรือฝั่งใหม่ไม่เป็น Error และ ID ที่ไม่มีตัวเลขท้ายไม่อยู่ในขอบเขตการจับคู่ หาก baseline มีหลาย ID ต่างกันสำหรับ running เดียวกัน ให้แจ้ง Error สำหรับแถวปัจจุบันที่จับคู่ได้เพื่อแสดงความไม่สอดคล้อง
+ตรวจทุก ID รวมรายการยกเว้น PO/POP ของกฎอื่น เพราะเป็นการตรวจความคงเดิมของ ID โดยตรง
+หากไฟล์ขาด มีไฟล์ตรงรูปแบบมากกว่าหนึ่งไฟล์ หรือคอลัมน์ขาด/ซ้ำ ให้เป็น Review และ `complete=false` ไม่สรุปว่าผ่าน
+รายงานชีต `Rule 16` แสดง ID ปัจจุบันใน `value`, ID เก่าใน `Expected Condition` และเลข running พร้อมไฟล์/แถว baseline ใน `Related Evidence` เก็บ hash ของไฟล์ทั้งสองฝั่งใน summary
+เลือกเฉพาะข้อ 16 ด้วย `--rules 16` เปลี่ยนที่อยู่ baseline ด้วย `--old-id-dir` หากใช้โหมดฐานข้อมูลหรือไฟล์รวมโดยไม่มีรอบ export จะเป็น Review เนื่องจากไม่มี CSV ปัจจุบันสำหรับเปรียบเทียบ
 
 ## สรุปความครบถ้วน
 

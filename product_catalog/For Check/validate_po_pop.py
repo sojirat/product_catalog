@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PO/POP rules 1–15. Python 3.10+. Export or SQL Server input, exact comparisons, full scans.
+"""PO/POP rules 1–16. Python 3.10+. Export or SQL Server input, exact comparisons, full scans.
 
 Defaults to the latest project export. --database reads SQL Server using
 product_catalog/.env. Validation runs in Python memory.
@@ -310,7 +310,8 @@ def _main(argv=None):
  ap.add_argument('--char-value',type=Path,nargs='+',help='CSV/ZIP หนึ่งหรือหลายไฟล์; ไม่ระบุจะใช้ Sheet Char_Value ใน PO')
  ap.add_argument('--config',type=Path,default=Path(__file__).with_name('config.json'))
  ap.add_argument('--out',type=Path,default=Path(__file__).resolve().parents[2]/'results')
- ap.add_argument('--rules',type=int,nargs='+',choices=RULE_NUMBERS,help='Rules to check, e.g. --rules 10 13 14 15; omitted: all rules 1-15')
+ ap.add_argument('--old-id-dir',type=Path,default=Path(__file__).resolve().parents[2]/'Old ID',help='Baseline CSV directory for Rule 16')
+ ap.add_argument('--rules',type=int,nargs='+',choices=RULE_NUMBERS,help='Rules to check, e.g. --rules 10 13 14 15; omitted: all rules 1-16')
  ap.add_argument('--report-rows-per-sheet',type=int,default=DEFAULT_REPORT_ROWS_PER_SHEET,
                  help='Maximum data rows per report sheet, excluding header (default: %(default)s)')
  args=ap.parse_args(argv)
@@ -387,6 +388,9 @@ def _main(argv=None):
   (out/'config_used.json').write_text(json.dumps(conf,ensure_ascii=False,indent=2),encoding='utf-8')
   v=Validator(conf)
   v.run_date=now.date()
+  from rule16 import check_unique_ids
+  id_current=args.input_dir.parent/'csv' if args.input_dir else None
+  v.id_snapshot_check=lambda validator:check_unique_ids(validator,id_current,args.old_id_dir,on_source=source.on_source)
   stage(10, 'Reading input data')
   LOG.info('Selected rules: %s', ', '.join(map(str,selected_rules)))
   if args.input_dir:
@@ -422,7 +426,7 @@ def _main(argv=None):
   LOG.info('Exporting Error-only Excel report')
   stage(80, 'Writing and verifying Error report')
   summary['report_rows_per_sheet']=args.report_rows_per_sheet
-  summary['error_report_rows']=export_report(v,out/f'Result_check_PO_POP_01-15_ErrorOnly_{stamp}.xlsx','ERROR',rows_per_sheet=args.report_rows_per_sheet)
+  summary['error_report_rows']=export_report(v,out/f'Result_check_PO_POP_01-16_ErrorOnly_{stamp}.xlsx','ERROR',rows_per_sheet=args.report_rows_per_sheet)
   if v.main_model_passes:
    summary['main_model_null_report_rows']=export_report(v,out/f'Result_Rule7_NoMainModel_{stamp}.xlsx','PASS',rows_per_sheet=args.report_rows_per_sheet)
   if any(i['severity']!='ERROR' for i in v.issues):

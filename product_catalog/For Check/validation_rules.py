@@ -33,6 +33,7 @@ class RuleValidator:
         self.main_model_passes = []
         self.selected_rules = list(RULE_NUMBERS)
         self.mat_code_catalog_lookup = None
+        self.id_snapshot_check = None
         self.run_date = datetime.now(timezone(timedelta(hours=7))).date()
         self.ex_po = set(config['exclude_po_ids'])
         self.ex_pop = set(config['exclude_pop_ids'])
@@ -714,6 +715,12 @@ class RuleValidator:
     def rule15(self):
         from rule15 import check_mat_code_coverage
         check_mat_code_coverage(self)
+
+    def rule16(self):
+        if self.id_snapshot_check is None:
+            self.add(16, 'REVIEW', 'ID_SNAPSHOT_UNAVAILABLE', 'ไม่ได้กำหนด CSV ปัจจุบันและ Old ID สำหรับข้อ 16')
+            return
+        self.id_snapshot_check(self)
 
     def summary(self):
         rules = []

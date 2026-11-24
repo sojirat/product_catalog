@@ -101,6 +101,12 @@ class CsvConnection:
         with path.open(encoding='utf-8-sig', newline='') as stream:
             reader = csv.reader(stream, strict=True)
             columns = next(reader, [])
+            if table.casefold() == 'vw_catalog_offer_specification_characteristic':
+                aliases = {
+                    'speccharacteristic.product offer id': 'offer_id',
+                    'speccharacteristic.product spec id': 'specification_id',
+                }
+                columns = [aliases.get(column.casefold(), column) for column in columns]
             if not columns or any(not name for name in columns) or len({c.casefold() for c in columns}) != len(columns):
                 raise ValueError(f'{path}: missing or duplicate column headers')
             # Product IDs are audit tie-breakers in rule 13, and numeric in SQL Server.

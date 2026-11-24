@@ -46,6 +46,16 @@ class DatabaseCsvTests(unittest.TestCase):
             (self.root / '.env').touch()
             self.assertEqual(find_resource_spec_pairs(self.root / '.env', [('001','rs1'),('1','rs1')]), {('001','rs1')})
 
+    def test_resource_pairs_use_exported_csv_headers(self):
+        self.write('vw_catalog_offer_specification_characteristic', [
+            'SpecCharacteristic.Product Offer ID', 'SpecCharacteristic.Product Spec ID',
+        ], [['001', 'rs1'], ['002', 'rs2']])
+        with self.mode(force_csv=True):
+            pairs = find_resource_spec_pairs(
+                self.root / '.env', [('001', 'rs1'), ('1', 'rs1'), ('001', 'rs2')],
+            )
+        self.assertEqual(pairs, {('001', 'rs1')})
+
     def test_variant_master_join_keeps_duplicates_and_null(self):
         self.write('PRODUCT_MST', ['MAT_CODE','PRODUCT_ID', *PRODUCT_CHAR_COLUMNS], [
             ['001',7,*([r'\N']*len(PRODUCT_CHAR_COLUMNS))]])
@@ -145,11 +155,11 @@ class DatabaseCsvTests(unittest.TestCase):
                  patch('logging.FileHandler', return_value=logging.NullHandler()), patch('logging.basicConfig'), redirect_stdout(io.StringIO()):
                 out = self.root / ('all' if not rules else 'selected')
                 code = main(['--csv','--database-dir',str(self.root),'--out',str(out),*rules])
-                self.assertEqual(code, 0)
+                self.assertEqual(code, 0 if rules else 2)
                 connect.assert_not_called()
                 summary = json.loads(next(out.glob('run_*/summary.json')).read_text(encoding='utf-8'))
                 self.assertTrue(summary['input_sha256'])
-                self.assertEqual(summary['selected_rules'], [10] if rules else list(range(1,16)))
+                self.assertEqual(summary['selected_rules'], [10] if rules else list(range(1,17)))
 
 
 if __name__ == '__main__':

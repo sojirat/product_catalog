@@ -24,6 +24,7 @@ EXPORT_FILES = {
     'pt': ('Product Offer Price', 'productOfferPrice_', 'Product Offer Price'),
     'ch': ('Product Offer Price', 'pop_channel_', 'Channel'),
     'po': ('Product Offer', 'ProductOffer_', 'ProductOffer'),
+    'cat': ('Product Offer', 'category_', 'Category'),
     'o': ('Product Offer', 'product_offer_price_', 'Product Offer Price'),
     'v': ('Product Offer', 'PO_Product_Variants_', 'Product Variants'),
     'l': ('Product Offer', 'Variant_ProductOffering_Price_', 'variantProductOfferingPrice'),

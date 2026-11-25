@@ -104,7 +104,7 @@ class RuleValidator:
     def run(self, rules=None):
         self.selected_rules = sorted(set(rules)) if rules is not None else list(DEFAULT_RULE_NUMBERS)
         if not self.selected_rules or any(number not in RULE_NUMBERS for number in self.selected_rules):
-            raise ValueError('Select at least one rule between 1 and 15')
+            raise ValueError(f'Select at least one rule between 1 and {RULE_NUMBERS[-1]}')
         stage(25, 'Building validation indexes')
         self.indexes()
         total=len(self.selected_rules)
@@ -117,6 +117,16 @@ class RuleValidator:
             stage(25 + position*50/total,
                   f'Rule {number}/{max(self.selected_rules)} finished in {monotonic()-started:.1f}s; '
                   f'Error={counts["ERROR"]}, Review={counts["REVIEW"]}, Warning={counts["WARNING"]}')
+
+    def rule19(self):
+        if not self.has(19, 'po', 'cat'):
+            return
+        category_po_ids = {row['po'] for row in self.rows['cat'] if row['po']}
+        for offer in self.rows['po']:
+            if offer['po'] not in category_po_ids:
+                self.finding(19, 'PO_CATEGORY_MISSING', offer, val=offer['po'],
+                             reason='ไม่พบ PO_ID ที่ตรงกับ Product Id ในชีต Category',
+                             expected='พบ PO_ID ที่ตรงกันอย่างน้อยหนึ่งแถว')
 
     def rule11(self):
         if not self.has(11, 'v'):

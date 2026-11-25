@@ -159,7 +159,7 @@ class DatabaseCsvTests(unittest.TestCase):
                 connect.assert_not_called()
                 summary = json.loads(next(out.glob('run_*/summary.json')).read_text(encoding='utf-8'))
                 self.assertTrue(summary['input_sha256'])
-                self.assertEqual(summary['selected_rules'], [10] if rules else list(range(1,17)))
+                self.assertEqual(summary['selected_rules'], [10] if rules else [*range(1,17), 19])
 
 
 if __name__ == '__main__':

@@ -2,8 +2,8 @@
 import re
 
 VERSION = '1.2.0'
-RULE_NUMBERS = tuple(range(1, 19))
-DEFAULT_RULE_NUMBERS = tuple(range(1, 17))
+RULE_NUMBERS = tuple(range(1, 20))
+DEFAULT_RULE_NUMBERS = (*range(1, 17), 19)
 UNIT = 'unit_name-mh_mg00562'
 MODEL = 'model-mh_mg00556'
 MAIN = 'main_model-mh_mg00554'
@@ -15,6 +15,7 @@ SCHEMAS = {
  'pt': ('Product Offer Price', ['Product Offer Price ID', 'priceType'], ['pid', 'price_type']),
  'ch': ('Channel', ['POP_ID', 'ProductOfferPrice.Channel'], ['pid', 'channel']),
  'po': ('ProductOffer', ['Product Id'], ['po']),
+ 'cat': ('Category', ['PO_ID'], ['po']),
  'm': ('Product Offer Price', ['Product Offer Price ID'], ['pid']),
  'o': ('Product Offer Price', ['Product Offer ID','Product Offer Price ID'], ['po','pid']),
  'v': ('Product_Variants', ['Product Variants.Product Id','Product Variants.variantId','Product Variants.specCharacteristics','Product Variants.value','Product Variants.sku'], ['po','vid','cids','vals','sku']),
@@ -32,6 +33,7 @@ RULE_INPUTS = {
     12: {'cv'}, 13: {'t'}, 14: {'v','l','pv','c'}, 15: {'v'}, 16: set(),
     17: {'v','cv'},
     18: {'v'},
+    19: {'po','cat'},
 }
 PRODUCT_CHAR_COLUMNS = ('MAIN_MODEL', 'BRAND', 'COMPANY', 'COLOR', 'CAPACITY', 'PRODUCT_TYPE',
                         'PRODUCT_SUBTYPE', 'MAT_TYPE', 'MODEL', 'UNIT_NAME')

@@ -315,7 +315,7 @@ def _main(argv=None):
  ap.add_argument('--out',type=Path,default=Path(__file__).resolve().parents[2]/'results')
  ap.add_argument('--pilot-dir',type=Path,default=Path(__file__).resolve().parents[2]/'Pilot',help='Pilot CSV directory for opt-in Rule 17')
  ap.add_argument('--old-id-dir',type=Path,default=Path(__file__).resolve().parents[2]/'Old ID',help='Baseline CSV directory for Rule 16')
- ap.add_argument('--rules',type=int,nargs='+',choices=RULE_NUMBERS,help='Rules to check, e.g. --rules 10 13 14 15; omitted: rules 1-16; special Rules 17 and 18 require explicit selection')
+ ap.add_argument('--rules',type=int,nargs='+',choices=RULE_NUMBERS,help='Rules to check, e.g. --rules 19; omitted: rules 1-16 and 19; special Rules 17 and 18 require explicit selection')
  ap.add_argument('--report-rows-per-sheet',type=int,default=DEFAULT_REPORT_ROWS_PER_SHEET,
                  help='Maximum data rows per report sheet, excluding header (default: %(default)s)')
  args=ap.parse_args(argv)
@@ -411,7 +411,7 @@ def _main(argv=None):
   else:
    from csv_fallback import read_with_fallback
    register=lambda p:manifest.__setitem__(str(p),digest(p))
-   for t in ('po','o','v','l'):
+   for t in ('po','cat','o','v','l'):
     if t in required_tables:read_with_fallback(v,args.po.resolve(),t,SCHEMAS[t][0],args.env,on_source=register)
    for t in ('m','c','ch','pt','pv'):
     if t in required_tables:read_with_fallback(v,args.pop.resolve(),t,SCHEMAS[t][0],args.env,on_source=register)

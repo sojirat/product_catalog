@@ -1,4 +1,4 @@
-# วิธีรันตรวจข้อมูล PO/POP ข้อ 1–16
+# วิธีรันตรวจข้อมูล PO/POP ข้อ 1–16 และ 19
 
 เลือกอ่านเฉพาะหมวดของระบบที่ใช้ ทุกคำสั่งรันจากโฟลเดอร์หลักของโปรเจกต์ที่มี `Makefile`, `export` และโฟลเดอร์ `product_catalog`
 
@@ -26,10 +26,10 @@ make setup-check
 ### 2. เลือกคำสั่งตรวจ
 
 ```sh
-# ตรวจทุกข้อ 1–16 ด้วย database
+# ตรวจทุกข้อ 1–16 และ 19 ด้วย database
 make check-db
 
-# ตรวจทุกข้อ 1–16 ด้วย CSV ใน Database โดยไม่เชื่อมฐานข้อมูล
+# ตรวจทุกข้อ 1–16 และ 19 ด้วย CSV ใน Database โดยไม่เชื่อมฐานข้อมูล
 make check-db CHECK_ARGS="--csv"
 
 # ตรวจหลายข้อด้วย database
@@ -77,7 +77,7 @@ open results
 | ไฟล์ | ใช้ดูอะไร |
 |---|---|
 | `summary.txt` | สรุปกฎที่เลือกและจำนวน Error / Review / Warning เริ่มอ่านไฟล์นี้ก่อน |
-| `Result_check_PO_POP_01-16_ErrorOnly_*.xlsx` | รายละเอียด Error แยกตาม Rule |
+| `Result_check_PO_POP_01-19_ErrorOnly_*.xlsx` | รายละเอียด Error แยกตาม Rule |
 | `Result_Review_Warning_*.xlsx` | รายการ Review และ Warning |
 | `Result_Rule7_NoMainModel_*.xlsx` | Variant ที่ผ่านข้อ 7 เพราะ MAIN_MODEL ไม่มีข้อมูล |
 | `summary.json` | จำนวนข้อมูล, coverage, วันที่ตรวจ และ SHA-256 ของไฟล์ต้นทาง |
@@ -144,10 +144,10 @@ python -m pip install -r ".\product_catalog\For Check\requirements.txt"
 ### 2. เลือกคำสั่งตรวจ
 
 ```powershell
-# ตรวจทุกข้อ 1–16 ด้วย database
+# ตรวจทุกข้อ 1–16 และ 19 ด้วย database
 & ".\product_catalog\For Check\run_check.cmd" --database
 
-# ตรวจทุกข้อ 1–16 ด้วย CSV ใน Database โดยไม่เชื่อมฐานข้อมูล
+# ตรวจทุกข้อ 1–16 และ 19 ด้วย CSV ใน Database โดยไม่เชื่อมฐานข้อมูล
 & ".\product_catalog\For Check\run_check.cmd" --csv
 
 # ตรวจหลายข้อด้วย database
@@ -193,7 +193,7 @@ explorer ".\results"
 | ไฟล์ | ใช้ดูอะไร |
 |---|---|
 | `summary.txt` | สรุปกฎที่เลือกและจำนวน Error / Review / Warning เริ่มอ่านไฟล์นี้ก่อน |
-| `Result_check_PO_POP_01-16_ErrorOnly_*.xlsx` | รายละเอียด Error แยกตาม Rule |
+| `Result_check_PO_POP_01-19_ErrorOnly_*.xlsx` | รายละเอียด Error แยกตาม Rule |
 | `Result_Review_Warning_*.xlsx` | รายการ Review และ Warning |
 | `Result_Rule7_NoMainModel_*.xlsx` | Variant ที่ผ่านข้อ 7 เพราะ MAIN_MODEL ไม่มีข้อมูล |
 | `summary.json` | จำนวนข้อมูล, coverage, วันที่ตรวจ และ SHA-256 ของไฟล์ต้นทาง |

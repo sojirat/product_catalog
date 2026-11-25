@@ -67,7 +67,7 @@ class RuleSelectionTests(unittest.TestCase):
             self.assertEqual(cv_paths,[])
 
     def test_invalid_rule_is_rejected_before_input_discovery(self):
-        for arguments in [['--rules','0'],['--rules','19'],['--rules']]:
+        for arguments in [['--rules','0'],['--rules','20'],['--rules']]:
             with self.subTest(arguments=arguments), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
                 main(arguments)
             self.assertEqual(error.exception.code,2)

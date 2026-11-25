@@ -28,6 +28,7 @@
 | 16 | เทียบ Unique ID ทั้ง 6 ประเภทกับ CSV ใน Old ID โดยจับคู่ running number ท้าย ID ภายในประเภทเดียวกัน | พบ running number ทั้งสองฝั่ง แต่ ID เต็มไม่เหมือนเดิม เลขที่พบเพียงฝั่งเดียวไม่เป็น Error |
 | 17 | กฎพิเศษ ต้องระบุ `--rules 17`: ตรวจ Pilot ว่ามี MODEL ใน Variant และ PRODUCTTYPE/BRAND ใน Char_Value ของ PO เดียวกัน โดยไม่เทียบ Commercial Name | ไม่มี PO/Variant ที่ผ่าน MODEL, PRODUCTTYPE และ BRAND ครบทุกเงื่อนไข |
 | 18 | กฎพิเศษ ต้องระบุ `--rules 18`: ตรวจ MAT_CODE ทุกแถวจาก Pilot/mat_code_*.csv กับ Product Variants.sku พบอย่างน้อยหนึ่งแถวถือว่าผ่าน | MAT_CODE ว่าง หรือไม่พบ SKU ที่ตรงกัน พบหลายแถวไม่เป็น Error |
+| 19 | ทุก PO ในไฟล์ Product Offer ต้องมี `Product Id` ตรงกับ `PO_ID` ในชีต Category อย่างน้อยหนึ่งแถว | ไม่พบแถวที่ตรงกัน |
 
 ## รายการยกเว้นการตรวจ Exclude list
 
@@ -666,7 +667,7 @@ CAPACITY ใช้ storage_capacity/storageCapacity เท่านั้น ไ
 - PRICE_MST ต้องมี `PRODUCT_ID`, `PRICE_ID`, `PRICE_GROUP`, `EFFECTIVE_DATE`, `EXPIRE_DATE`
 - เมื่อใช้ `--csv` ให้อ่าน PRODUCT_MST และ PRICE_MST จาก `Database` โดยไม่เชื่อมฐานข้อมูล รองรับชื่อไฟล์มี timestamp ตามกฎกลาง หากเชื่อมฐานข้อมูลไม่ได้ให้ fallback เช่นเดียวกัน
 - หากข้อมูลอ้างอิงหาย คอลัมน์ไม่ครบ หรือ query ไม่สำเร็จ ให้เป็น Review `MAT_CODE_LOOKUP_UNAVAILABLE` และ `complete=false` ไม่ถือว่า MAT_CODE ไม่พบใน Variant
-- ผลอยู่ในชีต `Rule 15` ของ Error หรือ Review Report ตามระดับปัญหา พร้อม SKU/MAT_CODE และ PRODUCT_ID ใน Related Evidence และแสดงผลใน summary เช่นเดียวกับข้ออื่น รายงาน Error รวมเปลี่ยนชื่อเป็น `Result_check_PO_POP_01-16_ErrorOnly_<วันเวลา>.xlsx`
+- ผลอยู่ในชีต `Rule 15` ของ Error หรือ Review Report ตามระดับปัญหา พร้อม SKU/MAT_CODE และ PRODUCT_ID ใน Related Evidence และแสดงผลใน summary เช่นเดียวกับข้ออื่น รายงาน Error รวมเปลี่ยนชื่อเป็น `Result_check_PO_POP_01-19_ErrorOnly_<วันเวลา>.xlsx`
 - `summary.json` แสดงวันที่ที่ใช้ตรวจใน `coverage.15_run_date_bangkok`, จำนวนแถว PRODUCT_MST ทั้งหมด, จำนวนสินค้าที่เข้าเงื่อนไข และจำนวนกลุ่มราคาที่ตรวจ แถวของ Product Master ที่เข้าเงื่อนไขแต่ไม่พบ Variant ยังคงถูกตรวจและรายงาน ไม่ถูกตัดออกด้วยการ join กับ Variant ก่อน
 
 ## ข้อ 16 ตรวจ Unique ID ว่าไม่มีการเปลี่ยนแปลง
@@ -722,6 +723,15 @@ No., PRODUCTTYPE, BRAND และ MODEL ใช้ค่าจากแถว Pil
 ค่า MAT_CODE ว่างเป็น Error `PILOT_MAT_CODE_EMPTY` หากไฟล์หรือคอลัมน์ขาด/ซ้ำ หรือไม่สามารถเลือกไฟล์ล่าสุดได้ ให้เป็น Review ไม่สรุปว่าผ่าน
 เปรียบเทียบข้อความตรงตัว ไม่ trim แยกตัวพิมพ์ใหญ่เล็กและเก็บเลขศูนย์นำหน้า ใช้รายการยกเว้น PO ตาม config จำนวน Variant ที่ตรงมากกว่าหนึ่งแถวยอมรับได้ และตรวจทุกแถว MAT_CODE ต้นฉบับรวมแถวซ้ำ
 อ่าน Variant ผ่าน XLSX/CSV fallback เดิม เก็บ hash ของ mat_code ที่เลือกใน summary และแสดง coverage จำนวนแถวทั้งหมด พบ และไม่พบ
+
+## ข้อ 19 ทุก PO ต้องมี Category
+
+ตรวจข้อ 19 ในคำสั่งตรวจรวม หรือเลือกตรวจเฉพาะข้อนี้ด้วย `--rules 19`
+
+นำค่า `Product Id` ของทุก PO จากไฟล์ Product Offer ไปเทียบกับคอลัมน์ `PO_ID` ในชีต `Category` ของไฟล์เดียวกัน
+
+- พบ `PO_ID` ที่ตรงกันอย่างน้อยหนึ่งแถว ให้ถือว่าผ่าน
+- ไม่พบ `PO_ID` ที่ตรงกัน ให้ถือว่าไม่ผ่านและรายงาน `Product Id` ของ PO นั้นเป็น Error
 
 ## สรุปความครบถ้วน
 

@@ -306,6 +306,7 @@ def _main(argv=None):
  ap.add_argument('--database-dir',type=Path,default=DEFAULT_DIRECTORY,help='CSV database snapshot directory (default: project Database)')
  ap.add_argument('--input-dir',type=Path,help='Export round name, round path or XLSX directory; use sibling csv for large Char_Value')
  ap.add_argument('--latest-export',type=Path,help='Use the latest DDMMYYYYHHMMSS export folder under this directory')
+ ap.add_argument('--export-suffix',default='',help='With --latest-export: only folders named DDMMYYYYHHMMSS<suffix>, e.g. _selected')
  ap.add_argument('--list-inputs',action='store_true',help='List resolved --input-dir files without running validation')
  ap.add_argument('--env',type=Path,default=Path(__file__).resolve().parent.parent/'.env')
  ap.add_argument('--check-connection',action='store_true',help='Test database connection without running validation')
@@ -333,11 +334,12 @@ def _main(argv=None):
   if any((args.input_dir,args.latest_export,args.database,args.po,args.pop,args.meta,args.check_connection)):
    ap.error('folder cannot be combined with another input mode')
   args.input_dir=args.folder
+ if args.export_suffix and not args.latest_export:ap.error('--export-suffix requires --latest-export')
  if args.latest_export:
   if any((args.input_dir,args.database,args.po,args.pop,args.meta,args.check_connection)):
    ap.error('--latest-export cannot be combined with other input modes or --check-connection')
   from export_source import latest_export_input
-  try:args.input_dir=latest_export_input(args.latest_export)
+  try:args.input_dir=latest_export_input(args.latest_export,args.export_suffix)
   except (OSError,ValueError) as error:ap.error(str(error))
   print(f'Using latest export: {args.input_dir}')
  elif args.input_dir or not any((args.database,args.po,args.pop,args.meta,args.check_connection)):

@@ -110,6 +110,16 @@ class ExportSourceTests(unittest.TestCase):
         (export / '02112026090000').touch()  # Files are not export rounds.
         self.assertEqual(latest_export_input(export), newest.resolve())
 
+    def test_latest_export_suffix_separates_selected_rounds(self):
+        export = self.root.parent / 'export'
+        normal = export / '02112026090000' / 'xlsx'
+        selected = export / '01112026090000_selected' / 'xlsx'
+        normal.mkdir(parents=True)
+        selected.mkdir(parents=True)
+        (export / '31102026090000_selected' / 'xlsx').mkdir(parents=True)
+        self.assertEqual(latest_export_input(export), normal.resolve())
+        self.assertEqual(latest_export_input(export, '_selected'), selected.resolve())
+
     def test_latest_export_does_not_silently_use_older_round(self):
         export = self.root.parent / 'export'
         (export / '30102026110649' / 'xlsx').mkdir(parents=True)

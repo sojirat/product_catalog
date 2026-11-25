@@ -136,7 +136,7 @@ def find_product_master(env_path, codes):
     try:
         result = {}
         with connection.cursor() as cursor:
-            query = (f'SELECT TOP (1) [COMMERCIAL_NAME], [SAP_DESCRIPTION] FROM {identifier(schema)}.[PRODUCT_MST] '
+            query = (f'SELECT TOP (1) [COMMERCIAL_NAME], [SAP_DESCRIPTION], [SAP_DESCRIPTION_TH] FROM {identifier(schema)}.[PRODUCT_MST] '
                      'WHERE [MAT_CODE] = ? '
                      'ORDER BY COALESCE([system_updated_at], [system_created_at]) DESC, '
                      '[system_created_at] DESC, [PRODUCT_ID] DESC')
@@ -145,7 +145,7 @@ def find_product_master(env_path, codes):
                 cursor.execute(query, (code,))
                 rows = cursor.fetchall()
                 if any(row[column] is not None and not isinstance(row[column], str)
-                       for row in rows for column in ('COMMERCIAL_NAME', 'SAP_DESCRIPTION')):
+                       for row in rows for column in ('COMMERCIAL_NAME', 'SAP_DESCRIPTION', 'SAP_DESCRIPTION_TH')):
                     raise ValueError('PRODUCT_MST contains non-text reference names')
                 result[code] = rows
                 batch_progress('Rule 13 database MAT_CODEs',number,len(codes))

@@ -30,14 +30,14 @@ class DatabaseCsvTests(unittest.TestCase):
         return source_mode(directory=self.root, **kwargs)
 
     def test_forced_csv_queries_latest_product_exact_codes_and_nulls(self):
-        self.write('PRODUCT_MST', ['MAT_CODE','COMMERCIAL_NAME','SAP_DESCRIPTION','system_updated_at','system_created_at','PRODUCT_ID'], [
-            ['001','Old','old',r'\N','2026-01-01',2],
-            ['001','New','',r'\N','2026-01-01',10],
-            ['1','Other','other','2026-11-01','2026-01-01',11]])
+        self.write('PRODUCT_MST', ['MAT_CODE','COMMERCIAL_NAME','SAP_DESCRIPTION','SAP_DESCRIPTION_TH','system_updated_at','system_created_at','PRODUCT_ID'], [
+            ['001','Old','old','old-th',r'\N','2026-01-01',2],
+            ['001','New','','new-th',r'\N','2026-01-01',10],
+            ['1','Other','other','other-th','2026-11-01','2026-01-01',11]])
         with self.mode(force_csv=True), patch('database_source.connect_database') as connect:
             result = find_product_master(self.root / '.env', ['001'])
         connect.assert_not_called()
-        self.assertEqual(result, {'001':[{'COMMERCIAL_NAME':'New','SAP_DESCRIPTION':''}]})
+        self.assertEqual(result, {'001':[{'COMMERCIAL_NAME':'New','SAP_DESCRIPTION':'','SAP_DESCRIPTION_TH':'new-th'}]})
 
     def test_connection_failure_falls_back_and_preserves_resource_pairs(self):
         self.write('vw_catalog_offer_specification_characteristic', ['offer_id','specification_id'], [['001','rs1']])
@@ -79,8 +79,8 @@ class DatabaseCsvTests(unittest.TestCase):
             writer = csv.writer(stream)
             writer.writerow(SCHEMAS['t'][1])
             writer.writerow(['pop1','001','Phone','Description','Description'])
-        self.write('PRODUCT_MST', ['MAT_CODE','COMMERCIAL_NAME','SAP_DESCRIPTION','system_updated_at','system_created_at','PRODUCT_ID'],
-                   [['001','Phone','Description',r'\N','2026-01-01',1]])
+        self.write('PRODUCT_MST', ['MAT_CODE','COMMERCIAL_NAME','SAP_DESCRIPTION','SAP_DESCRIPTION_TH','system_updated_at','system_created_at','PRODUCT_ID'],
+                   [['001','Phone','Description','Description',r'\N','2026-01-01',1]])
         with patch('database_source.connect_database') as connect, \
              patch('logging.FileHandler', return_value=logging.NullHandler()), patch('logging.basicConfig'), redirect_stdout(io.StringIO()):
             code = main(['--input-dir',str(self.root / 'export'),'--csv','--database-dir',str(self.root),

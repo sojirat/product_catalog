@@ -23,7 +23,7 @@ class PilotTests(unittest.TestCase):
     def test_full_chain_and_camel_snake_matching(self):
         self.v.indexes()
         check_pilot(self.v, self.pilot, 'pilot.csv')
-        self.assertEqual(self.v.pilot_matches, [('1','po1','v1','pop1','DEVICE','UAG','CASEIPHONE17PRO')])
+        self.assertEqual(self.v.pilot_matches, [('1','po1','v1','','DEVICE','UAG','CASEIPHONE17PRO')])
         self.assertEqual(self.v.issues, [])
 
     def test_po_values_must_belong_to_same_candidate(self):
@@ -33,13 +33,15 @@ class PilotTests(unittest.TestCase):
         self.assertFalse(self.v.pilot_matches)
         self.assertEqual(self.v.issues[0]['severity'], 'ERROR')
 
-    def test_wrong_commercial_name_fails(self):
-        self.v.rows['t'][0]['commercial_name'] = 'Wrong'
+    def test_no_pop_or_meta_required_and_commercial_name_ignored(self):
+        self.v.ready = {'v', 'cv'}
+        self.v.rows['l'] = []
+        self.v.rows['t'] = []
+        self.pilot[0]['Commercial Name'] = 'Different name'
         self.v.indexes()
         check_pilot(self.v, self.pilot, 'pilot.csv')
-        self.assertEqual(self.v.issues[0]['code'], 'PILOT_NOT_FOUND')
-        detail = [row for row in self.v.pilot_diagnostics if row[5] == 'commercialName']
-        self.assertEqual(detail[0][6:9], ('ไม่พบค่าที่ตรง', 'Case', "'Wrong'"))
+        self.assertEqual(self.v.issues, [])
+        self.assertEqual(len(self.v.pilot_matches), 1)
 
     def test_missing_model_marks_later_steps_not_checked(self):
         self.pilot[0]['MODEL'] = 'MISSING'
@@ -56,7 +58,7 @@ class PilotTests(unittest.TestCase):
         self.assertEqual(detail['PRODUCTTYPE'][6], 'พบค่าที่ตรง')
         self.assertEqual(detail['BRAND'][6:9], ('ไม่พบค่าที่ตรง', 'UAG', "'OTHER'"))
         self.assertEqual(detail['BRAND'][2:4], ('po1', 'v1'))
-        self.assertEqual(detail['commercialName'][6], 'ยังไม่ตรวจ')
+        self.assertEqual(set(detail), {'MODEL', 'PRODUCTTYPE', 'BRAND'})
 
     def test_default_rules_exclude_special_rule(self):
         self.assertNotIn(17, self.v.selected_rules)
@@ -82,7 +84,7 @@ class PilotTests(unittest.TestCase):
     def test_all_matching_pops_export_as_literal_text_and_split(self):
         from rule17 import export_pilot, REPORT_HEADERS
         from openpyxl import load_workbook
-        self.v._insert('l', [('l.csv', 'link', 3, 'v1', 'pop2')])
+        self.v.rows['v'].append(dict(self.v.rows['v'][0], vid='v2', id=2, rn=3))
         self.v._insert('t', [('t.csv','meta',3,'pop2','sku','Case','','')])
         self.v.indexes()
         check_pilot(self.v, self.pilot, 'pilot.csv')

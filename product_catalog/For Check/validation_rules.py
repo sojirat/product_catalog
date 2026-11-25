@@ -35,6 +35,7 @@ class RuleValidator:
         self.pilot_matches = []
         self.pilot_diagnostics = []
         self.pilot_lookup = None
+        self.mat_code_pilot_lookup = None
         self.mat_code_catalog_lookup = None
         self.id_snapshot_check = None
         self.run_date = datetime.now(timezone(timedelta(hours=7))).date()
@@ -560,7 +561,7 @@ class RuleValidator:
             return
         comparisons = [('commercial_name', 'commercialName', 'COMMERCIAL_NAME'),
                        ('sap_eng', 'sapDescriptionEng', 'SAP_DESCRIPTION'),
-                       ('sap_tha', 'sapDescriptionTha', 'SAP_DESCRIPTION')]
+                       ('sap_tha', 'sapDescriptionTha', 'SAP_DESCRIPTION_TH')]
         for number, row in enumerate(active, 1):
             batch_progress('Rule 13 Meta comparisons', number, len(active), interval=10000)
             if row['sku'] == '':
@@ -736,6 +737,21 @@ class RuleValidator:
             return
         self.inputs.append({'source': str(path), 'sheet': 'Pilot', 'table': 'pilot', 'records': len(rows)})
         check_pilot(self, rows, path)
+
+    def rule18(self):
+        from rule18 import check_mat_codes
+        import csv
+        try:
+            if self.mat_code_pilot_lookup is None:
+                raise ValueError('Pilot MAT_CODE input is not configured')
+            path, rows = self.mat_code_pilot_lookup()
+        except (OSError, ValueError, csv.Error) as error:
+            self.add(18, 'REVIEW', 'PILOT_MAT_CODE_INPUT_UNAVAILABLE',
+                     'อ่านไฟล์ Pilot mat_code ไม่สำเร็จ', related=str(error))
+            return
+        self.inputs.append({'source': str(path), 'sheet': 'Pilot MAT_CODE',
+                            'table': 'pilot_mat_code', 'records': len(rows)})
+        check_mat_codes(self, path, rows)
 
     def summary(self):
         rules = []

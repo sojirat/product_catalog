@@ -17,7 +17,7 @@ class Rule13Tests(unittest.TestCase):
     def setUp(self):
         self.v = Validator(CONFIG)
         self.v.ready.add('t')
-        self.master = {'COMMERCIAL_NAME':'Phone', 'SAP_DESCRIPTION':'Description'}
+        self.master = {'COMMERCIAL_NAME':'Phone', 'SAP_DESCRIPTION':'Description','SAP_DESCRIPTION_TH':'Description'}
         self.lookup = Mock(return_value={'001':[self.master]})
         self.v.product_master_lookup = self.lookup
 
@@ -31,6 +31,12 @@ class Rule13Tests(unittest.TestCase):
         self.lookup.assert_called_once_with(['001'])
         self.assertEqual(self.v.issues, [])
         self.assertEqual(self.v.coverage['13_checked_rows'], 2)
+
+    def test_thai_description_uses_separate_thai_column(self):
+        self.master['SAP_DESCRIPTION_TH'] = 'Thai reference'
+        self.insert(tha='Thai reference')
+        self.v.rule13()
+        self.assertEqual(self.v.issues, [])
 
     def test_each_mismatch_has_actual_and_expected_in_report(self):
         self.insert(commercial='phone', eng='Description ', tha='Thai description')
@@ -51,7 +57,7 @@ class Rule13Tests(unittest.TestCase):
                 for report_row, label, actual, column, expected in zip(
                         rows[1:], ['commercialName','sapDescriptionEng','sapDescriptionTha'],
                         ['phone','Description ','Thai description'],
-                        ['COMMERCIAL_NAME','SAP_DESCRIPTION','SAP_DESCRIPTION'],
+                        ['COMMERCIAL_NAME','SAP_DESCRIPTION','SAP_DESCRIPTION_TH'],
                         ['Phone','Description','Description']):
                     self.assertEqual(report_row[4],
                                      f"matCode='001': Meta POP.{label} = {actual!r} ไม่ตรงกับ PRODUCT_MST.{column} = {expected!r}")

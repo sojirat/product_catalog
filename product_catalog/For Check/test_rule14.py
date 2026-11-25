@@ -273,7 +273,7 @@ class Rule14Tests(unittest.TestCase):
         connection=Connection(OnetimeCursor())
         with tempfile.TemporaryDirectory() as directory, \
              patch('database_source.open_database',return_value=(connection,'dbo')), \
-             patch('database_source.find_product_master',return_value={'001':[{'COMMERCIAL_NAME':'001','SAP_DESCRIPTION':'001'}]}), \
+             patch('database_source.find_product_master',return_value={'001':[{'COMMERCIAL_NAME':'001','SAP_DESCRIPTION':'001','SAP_DESCRIPTION_TH':'001'}]}), \
              patch('database_source.find_variant_masters',return_value=self.reference) as lookup, \
              patch('logging.FileHandler',return_value=logging.NullHandler()), \
              patch('logging.basicConfig'), redirect_stdout(io.StringIO()):

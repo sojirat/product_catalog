@@ -15,7 +15,7 @@ class Tests(unittest.TestCase):
  def setUp(self):
   self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name);self.v=Validator(CONFIG)
   self.v.ready.update(SCHEMAS)
-  self.v.product_master_lookup=lambda codes:{code:[{'COMMERCIAL_NAME':'Name','SAP_DESCRIPTION':'Description'}] for code in codes}
+  self.v.product_master_lookup=lambda codes:{code:[{'COMMERCIAL_NAME':'Name','SAP_DESCRIPTION':'Description','SAP_DESCRIPTION_TH':'Description'}] for code in codes}
   self.v.main_model_lookup=lambda codes:{code:[{'MAIN_MODEL':'Required model'}] for code in codes}
   self.v.mat_code_catalog_lookup=lambda:{'products':[], 'prices':[]}
   self.v.id_snapshot_check=lambda validator:None

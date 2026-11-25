@@ -314,7 +314,7 @@ def _main(argv=None):
  ap.add_argument('--out',type=Path,default=Path(__file__).resolve().parents[2]/'results')
  ap.add_argument('--pilot-dir',type=Path,default=Path(__file__).resolve().parents[2]/'Pilot',help='Pilot CSV directory for opt-in Rule 17')
  ap.add_argument('--old-id-dir',type=Path,default=Path(__file__).resolve().parents[2]/'Old ID',help='Baseline CSV directory for Rule 16')
- ap.add_argument('--rules',type=int,nargs='+',choices=RULE_NUMBERS,help='Rules to check, e.g. --rules 10 13 14 15; omitted: rules 1-16; special Rule 17 requires explicit selection')
+ ap.add_argument('--rules',type=int,nargs='+',choices=RULE_NUMBERS,help='Rules to check, e.g. --rules 10 13 14 15; omitted: rules 1-16; special Rules 17 and 18 require explicit selection')
  ap.add_argument('--report-rows-per-sheet',type=int,default=DEFAULT_REPORT_ROWS_PER_SHEET,
                  help='Maximum data rows per report sheet, excluding header (default: %(default)s)')
  args=ap.parse_args(argv)
@@ -391,6 +391,8 @@ def _main(argv=None):
   (out/'config_used.json').write_text(json.dumps(conf,ensure_ascii=False,indent=2),encoding='utf-8')
   v=Validator(conf)
   v.run_date=now.date()
+  from rule18 import read_mat_codes
+  v.mat_code_pilot_lookup=lambda:read_mat_codes(args.pilot_dir,on_source=source.on_source)
   from rule17 import read_pilot
   v.pilot_lookup=lambda:read_pilot(args.pilot_dir,on_source=source.on_source)
   from rule16 import check_unique_ids
@@ -431,7 +433,7 @@ def _main(argv=None):
   LOG.info('Exporting Error-only Excel report')
   stage(80, 'Writing and verifying Error report')
   summary['report_rows_per_sheet']=args.report_rows_per_sheet
-  report_last=17 if 17 in selected_rules else 16
+  report_last=max(16, max(selected_rules))
   summary['error_report_rows']=export_report(v,out/f'Result_check_PO_POP_01-{report_last}_ErrorOnly_{stamp}.xlsx','ERROR',rows_per_sheet=args.report_rows_per_sheet)
   if 17 in selected_rules:
    from rule17 import export_pilot

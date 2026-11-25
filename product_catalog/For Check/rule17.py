@@ -1,4 +1,4 @@
-"""Opt-in Pilot coverage through Variant, PO characteristics, links and Meta POP."""
+"""Opt-in Pilot coverage through Variant and PO characteristics."""
 import csv
 import re
 from datetime import datetime
@@ -43,7 +43,7 @@ def read_pilot(directory, on_source=None):
 
 
 def check_pilot(v, pilot_rows, source):
-    if not v.has(17, 'v', 'cv', 'l', 't'):
+    if not v.has(17, 'v', 'cv'):
         return
     models = defaultdict(list)
     malformed = 0
@@ -76,13 +76,12 @@ def check_pilot(v, pilot_rows, source):
                                 step, status, expected, actual, evidence))
         def blocked(steps, evidence, po='', vid=''):
             for step in steps:
-                expected = {'PRODUCTTYPE': pilot['PRODUCTTYPE'], 'BRAND': pilot['BRAND'],
-                            'POP link': 'อย่างน้อย 1 POP', 'commercialName': pilot['Commercial Name']}[step]
+                expected = pilot[step]
                 record(step, 'ยังไม่ตรวจ', expected, evidence=evidence, po=po, vid=vid)
         if not models[pilot['MODEL']]:
             record('MODEL', 'ไม่พบค่าที่ตรง', pilot['MODEL'],
                    evidence=f'ไม่พบ MODEL ผ่านการอ้างอิง model ใน Variant; Variant ที่จับคู่ comma ไม่ได้ {malformed} แถว')
-            blocked(('PRODUCTTYPE', 'BRAND', 'POP link', 'commercialName'), 'ยังไม่พบ Variant ที่ MODEL ตรง')
+            blocked(('PRODUCTTYPE', 'BRAND'), 'ยังไม่พบ Variant ที่ MODEL ตรง')
         for variant in models[pilot['MODEL']]:
             po = variant['po']
             vid = variant['vid']
@@ -95,28 +94,8 @@ def check_pilot(v, pilot_rows, source):
                        '; '.join(po_sources[po, key]) or 'ไม่พบ characteristic ใน Char_Value ของ PO นี้', po, vid)
             if (pilot['PRODUCTTYPE'] not in po_values[po, 'producttype']
                     or pilot['BRAND'] not in po_values[po, 'brand']):
-                blocked(('POP link', 'commercialName'), 'PRODUCTTYPE หรือ BRAND ของ PO นี้ไม่ตรง', po, vid)
                 continue
-            links = [link for link in v.links_by_vid[vid] if link['pid'] not in v.ex_pop]
-            if not links:
-                record('POP link', 'ไม่พบค่าที่ตรง', 'อย่างน้อย 1 POP', '(ไม่มีข้อมูล)',
-                       'ไม่พบ link ไปยัง POP ที่อยู่ในขอบเขตตรวจ', po, vid)
-                blocked(('commercialName',), 'ยังไม่พบ POP ที่เชื่อมกับ Variant นี้', po, vid)
-            for link in links:
-                pid = link['pid']
-                record('POP link', 'พบค่าที่ตรง', 'อย่างน้อย 1 POP', pid,
-                       f"{link['src']} record {link['rn']}", po, vid, pid)
-                meta_rows = v.meta_by_pid[pid]
-                names = sorted({meta['commercial_name'] for meta in meta_rows})
-                name_found = any(meta['commercial_name'] == pilot['Commercial Name'] for meta in meta_rows)
-                record('commercialName', 'พบค่าที่ตรง' if name_found else 'ไม่พบค่าที่ตรง',
-                       pilot['Commercial Name'], ', '.join(repr(value) for value in names) if names else '(ไม่มีข้อมูล)',
-                       '; '.join(f"{meta['src']} record {meta['rn']}" for meta in meta_rows) or 'ไม่พบ POP ใน Meta',
-                       po, vid, pid)
-                if any(meta['commercial_name'] == pilot['Commercial Name']
-                       for meta in v.meta_by_pid[link['pid']]):
-                    matches.add((pilot['No.'], po, variant['vid'], link['pid'],
-                                 pilot['PRODUCTTYPE'], pilot['BRAND'], pilot['MODEL']))
+            matches.add((pilot['No.'], po, vid, '', pilot['PRODUCTTYPE'], pilot['BRAND'], pilot['MODEL']))
         if matches:
             v.pilot_matches.extend(sorted(matches))
             v.coverage['17_passed_pilot_rows'] += 1
@@ -124,7 +103,7 @@ def check_pilot(v, pilot_rows, source):
             v.pilot_diagnostics.extend(diagnostics)
             failed = sorted({row[5] for row in diagnostics if row[6] == 'ไม่พบค่าที่ตรง'})
             v.add(17, 'ERROR', 'PILOT_NOT_FOUND',
-                  'ไม่พบเส้นทางที่ผ่านครบ; ขั้นที่ไม่ตรง: ' + ', '.join(failed) + '; ดูชีต Rule 17 Detail เพื่อเทียบค่าที่ต้องการกับค่าที่พบแยกตาม PO/Variant/POP',
+                  'ไม่พบเส้นทางที่ผ่านครบ; ขั้นที่ไม่ตรง: ' + ', '.join(failed) + '; ดูชีต Rule 17 Detail เพื่อเทียบค่าที่ต้องการกับค่าที่พบแยกตาม PO/Variant',
                   src=str(source), sheet='Pilot', rn=pilot.get('_rn', number),
                   val=pilot['MODEL'], name=pilot['Commercial Name'],
                   related=f"No.={pilot['No.']}; PRODUCTTYPE={pilot['PRODUCTTYPE']}; BRAND={pilot['BRAND']}; รายละเอียดทีละขั้นอยู่ใน Rule 17 Detail")
@@ -160,7 +139,7 @@ def export_pilot(v, path, rows_per_sheet):
             if tuple(next(rows)) != REPORT_HEADERS:
                 raise AssertionError('Pilot report header differs')
             for row in rows:
-                if tuple(row) != v.pilot_matches[index]:
+                if tuple('' if value is None else value for value in row) != v.pilot_matches[index]:
                     raise AssertionError('Pilot report row differs')
                 index += 1
         if index != len(v.pilot_matches):

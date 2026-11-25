@@ -25,6 +25,9 @@
 | 13 | เทียบ Meta POP กับ PRODUCT_MST ตาม matCode = MAT_CODE | matCode ว่าง, ไม่พบ MAT_CODE หรือชื่อไม่ตรง Product Master |
 | 14 | รวม Char จาก Variant และ Onetime POP เทียบ Product Master และ Price Master | Char ไม่ตรง, Onetime POP ไม่ครบหนึ่งแถว, ไม่พบ PRODUCT_MST ที่ใช้ได้ หรือราคาไม่ตรง |
 | 15 | ย้อน MAT_CODE ของสินค้าที่เข้าเงื่อนไขและมีราคาปัจจุบัน ไปตรวจความครบถ้วนใน Product_Variants | ไม่พบ SKU หรือพบ Variant หลายแถวแต่ไม่มี price_group ตรงกลุ่มราคาที่มีผล |
+| 16 | เทียบ Unique ID ทั้ง 6 ประเภทกับ CSV ใน Old ID โดยจับคู่ running number ท้าย ID ภายในประเภทเดียวกัน | พบ running number ทั้งสองฝั่ง แต่ ID เต็มไม่เหมือนเดิม เลขที่พบเพียงฝั่งเดียวไม่เป็น Error |
+| 17 | กฎพิเศษ ต้องระบุ `--rules 17`: ตรวจ Pilot ว่ามี MODEL ใน Variant และ PRODUCTTYPE/BRAND ใน Char_Value ของ PO เดียวกัน โดยไม่เทียบ Commercial Name | ไม่มี PO/Variant ที่ผ่าน MODEL, PRODUCTTYPE และ BRAND ครบทุกเงื่อนไข |
+| 18 | กฎพิเศษ ต้องระบุ `--rules 18`: ตรวจ MAT_CODE ทุกแถวจาก Pilot/mat_code_*.csv กับ Product Variants.sku พบอย่างน้อยหนึ่งแถวถือว่าผ่าน | MAT_CODE ว่าง หรือไม่พบ SKU ที่ตรงกัน พบหลายแถวไม่เป็น Error |
 
 ## รายการยกเว้นการตรวจ Exclude list
 
@@ -579,9 +582,9 @@ Error Report มีชีต `Rule 10` สำหรับรายละเอ�
 
 - `COMMERCIAL_NAME` ต้องตรงกับ `commercialName` หาก `COMMERCIAL_NAME` เป็น NULL หรือข้อความว่าง ให้ใช้ `SAP_DESCRIPTION` เทียบกับ `commercialName` แทน โดย Reason และ Related Evidence ระบุคอลัมน์ที่ใช้เทียบจริง ข้อความที่มีเฉพาะช่องว่างยังถือว่ามีค่าตามกฎไม่ trim
 - `SAP_DESCRIPTION` ต้องตรงกับ `sapDescriptionEng`
-- `SAP_DESCRIPTION` ต้องตรงกับ `sapDescriptionTha`
+- `SAP_DESCRIPTION_TH` ต้องตรงกับ `sapDescriptionTha`
 
-ทั้งชื่อภาษาอังกฤษและภาษาไทยเทียบกับ `SAP_DESCRIPTION` คอลัมน์เดียวกันตามกฎที่กำหนด
+ชื่อภาษาอังกฤษเทียบกับ `SAP_DESCRIPTION` ส่วนชื่อภาษาไทยเทียบกับ `SAP_DESCRIPTION_TH`
 เปรียบเทียบข้อความตรงตัว แยกตัวพิมพ์ใหญ่เล็ก ไม่ trim ค่า และไม่ข้ามชื่อที่ว่าง ค่า NULL จากฐานข้อมูลไม่เท่ากับข้อความว่าง
 matCode ว่างหรือไม่พบ MAT_CODE เป็น Error หากพบหลายแถวใน PRODUCT_MST ให้เลือกแถวล่าสุดเพียงแถวเดียวด้วย `TOP (1)` และเรียง `COALESCE(system_updated_at, system_created_at) DESC, system_created_at DESC, PRODUCT_ID DESC` โดยใช้เวลาอัปเดตล่าสุด หากไม่มีให้ใช้เวลาสร้าง และใช้ PRODUCT_ID ตัดสินเมื่อเวลาเท่ากัน ไม่แจ้ง Review เพียงเพราะมี MAT_CODE ซ้ำ
 เมื่อค่าต่างกัน แจ้ง Error แยกตามช่องในชีต `Rule 13` พร้อม POP ID, matCode, แถวต้นทาง, ชื่อช่อง, ค่าจาก Meta และค่าที่คาดหวังจาก Product Master
@@ -697,18 +700,28 @@ CAPACITY ใช้ storage_capacity/storageCapacity เท่านั้น ไ
 1. Split `Product Variants.specCharacteristics` และ `Product Variants.value` ด้วย comma แล้วจับคู่ตาม index เดียวกัน หา characteristic `model` เช่น `model-mh_mg00556` และนำ value ของ model ไปหา characteristic ที่ชื่อเดียวกัน โดยตัด suffix `-mh_mg...` และรองรับ camelCase กับ snake_case
 2. นำ value ของ characteristic ที่พบจากขั้นตอนแรกเทียบกับ `MODEL` ของ Pilot หากไม่พบ Variant ที่ตรงให้แจ้ง Error
 3. ใช้ `Product Variants.Product Id` ของแต่ละ Variant ที่ MODEL ตรง ไปหา `Char Value.Product Offer ID` ใน Char_Value ของ PO เดียวกัน ต้องมีแถวที่ `Char Value.Product Offer Characteristics Name` เป็น `productType` และ value ตรง `PRODUCTTYPE` และแถวชื่อ `brand` ที่ value ตรง `BRAND` ชื่อ characteristic รองรับ camelCase/snake_case ส่วน value เทียบตรงตัว
-4. นำ `Product Variants.variantId` ของ Variant ที่ผ่าน ไปหา `variantProductOfferingPrice.variantId` ใน Variant_ProductOffering_Price แล้วนำ POP ID ทุกตัวที่เชื่อมไปหา `Product Offer Price ID` ใน POP_metaExt_productInfo
-5. ต้องมี `commercialName` ตรงกับ `Commercial Name` ของ Pilot ภายใต้ POP ที่เชื่อมกับ Variant นั้น หากพบอย่างน้อยหนึ่งเส้นทางที่ผ่านครบ ถือว่าแถว Pilot ผ่าน หากไม่พบให้แจ้ง Error `PILOT_NOT_FOUND` ในรายงานข้อ 17 พร้อมบอกขั้นที่ไม่ตรง และอ้างอิงชีต `Rule 17 Detail`
 
-ค่า MODEL, PRODUCTTYPE, BRAND และ Commercial Name เทียบตรงตัว แยกตัวพิมพ์ใหญ่เล็ก ไม่ trim ไม่รวมข้อมูลข้าม PO/Variant/POP เพื่อให้ผ่าน ใช้รายการยกเว้น PO/POP ตาม config
+เมื่อพบอย่างน้อยหนึ่ง PO/Variant ที่ผ่าน MODEL, PRODUCTTYPE และ BRAND ครบ ถือว่าแถว Pilot ผ่าน หากไม่พบให้แจ้ง Error `PILOT_NOT_FOUND` และดูค่าที่พบแยกตามขั้นใน `Rule 17 Detail`
+
+ค่า MODEL, PRODUCTTYPE และ BRAND เทียบตรงตัว แยกตัวพิมพ์ใหญ่เล็ก ไม่ trim ไม่รวมข้อมูลข้าม PO/Variant เพื่อให้ผ่าน ใช้รายการยกเว้น PO ตาม config
 Variant ที่จับคู่สมาชิกไม่ได้จะไม่ใช้เป็นหลักฐานการผ่าน และนับใน coverage `17_malformed_variant_rows`
 
 สร้างไฟล์ `Result_Rule17_Pilot_<วันเวลา>.xlsx` สำหรับทุกเส้นทางที่ผ่านครบ โดยมีหัวตารางเรียงดังนี้:
 
 `No.`, `Product Offer`, `Variant ID`, `Product Offer Price`, `PRODUCTTYPE`, `BRAND`, `MODEL`
 
-No., PRODUCTTYPE, BRAND และ MODEL ใช้ค่าจากแถว Pilot ส่วน ID ใช้ข้อมูลที่จับคู่ได้จริง หนึ่งแถว Pilot อาจได้หลายรายการหากมีหลาย Variant/POP ที่ผ่าน เส้นทางซ้ำภายในแถว Pilot เดียวกันแสดงครั้งเดียว ถ้าไม่มีรายการผ่าน Excel ยังมีหัวตาราง ข้อมูลเกินขีดจำกัดต่อชีตจะแบ่งชีตตาม `--report-rows-per-sheet` และตรวจทุกเซลล์หลังเขียนไฟล์
-หากไม่พบ Pilot หรือหัวตารางไม่ครบให้เป็น Review ไม่สรุปว่าผ่าน ระบบอ่าน XLSX/CSV ของ Variant, Char_Value, link และ Meta ผ่าน fallback เดิม และเก็บ hash ของ Pilot ที่เลือกใน summary
+No., PRODUCTTYPE, BRAND และ MODEL ใช้ค่าจากแถว Pilot ส่วน Product Offer และ Variant ID ใช้ข้อมูลที่จับคู่ได้จริง คอลัมน์ Product Offer Price เว้นว่างเพื่อคงรูปแบบรายงานเดิม เพราะยกเลิกการตรวจ link และ POP หนึ่งแถว Pilot อาจได้หลายรายการหากมีหลาย Variant ที่ผ่าน เส้นทางซ้ำภายในแถว Pilot เดียวกันแสดงครั้งเดียว ถ้าไม่มีรายการผ่าน Excel ยังมีหัวตาราง ข้อมูลเกินขีดจำกัดต่อชีตจะแบ่งชีตตาม `--report-rows-per-sheet` และตรวจทุกเซลล์หลังเขียนไฟล์
+หากไม่พบ Pilot หรือหัวตารางไม่ครบให้เป็น Review ไม่สรุปว่าผ่าน Commercial Name คงเป็นหัวตารางและข้อมูลอ้างอิงใน Pilot แต่ไม่นำมาตัดสินผ่าน/ไม่ผ่าน ข้อ 17 ไม่อ่าน link หรือ Meta ระบบอ่าน XLSX/CSV ของ Variant และ Char_Value ผ่าน fallback เดิม และเก็บ hash ของ Pilot ที่เลือกใน summary
+
+## ข้อ 18 กฎพิเศษตรวจ MAT_CODE ใน Pilot ว่ามีครบใน Variant
+
+ข้อ 18 ไม่ตรวจในคำสั่งรวม ต้องระบุ `--rules 18` โดยตรง หรือเลือก 18 ร่วมกับข้ออื่น
+อ่าน `Pilot/mat_code_*.csv` คอลัมน์ `MAT_CODE` หากมีหลายไฟล์ให้เลือก timestamp ล่าสุดตามวันเวลารูปแบบ `mat_code_DDMMYYYYHHMMSS.csv` หากมีไฟล์เดียวใช้ไฟล์นั้น เปลี่ยนโฟลเดอร์ได้ด้วย `--pilot-dir`
+
+ตรวจทุกแถวว่า MAT_CODE มีอยู่ในไฟล์ Product Offer ชีต Product_Variants คอลัมน์ `Product Variants.sku` อย่างน้อยหนึ่งแถวหรือไม่ หากพบให้ผ่าน หากไม่พบแจ้ง Error `PILOT_MAT_CODE_MISSING` พร้อม MAT_CODE และแถวต้นทางในชีต `Rule 18`
+ค่า MAT_CODE ว่างเป็น Error `PILOT_MAT_CODE_EMPTY` หากไฟล์หรือคอลัมน์ขาด/ซ้ำ หรือไม่สามารถเลือกไฟล์ล่าสุดได้ ให้เป็น Review ไม่สรุปว่าผ่าน
+เปรียบเทียบข้อความตรงตัว ไม่ trim แยกตัวพิมพ์ใหญ่เล็กและเก็บเลขศูนย์นำหน้า ใช้รายการยกเว้น PO ตาม config จำนวน Variant ที่ตรงมากกว่าหนึ่งแถวยอมรับได้ และตรวจทุกแถว MAT_CODE ต้นฉบับรวมแถวซ้ำ
+อ่าน Variant ผ่าน XLSX/CSV fallback เดิม เก็บ hash ของ mat_code ที่เลือกใน summary และแสดง coverage จำนวนแถวทั้งหมด พบ และไม่พบ
 
 ## สรุปความครบถ้วน
 
@@ -717,4 +730,4 @@ No., PRODUCTTYPE, BRAND และ MODEL ใช้ค่าจากแถว Pil
 หนึ่งต้นเหตุอาจผิดหลายข้อ เช่น POP ไม่มี Characteristic และ Variant ไม่มี model ทำให้ข้อ 5 และข้อ 6 ผิด
 ห้ามรวมจำนวน Error แล้วตีความเป็นจำนวน PO/POP ที่ไม่ซ้ำ
 
-รายงาน Error ข้อ 17 มีชีต `Rule 17 Detail` แยกตาม No. และเส้นทาง PO/Variant/POP แสดงขั้นตอน สถานะ ค่าที่ต้องการ ค่าที่พบจริง และไฟล์/แถวหลักฐาน สถานะ `พบค่าที่ตรง` หมายถึงพบค่าตาม Pilot ในเส้นทางนั้น `ไม่พบค่าที่ตรง` หมายถึงตรวจแล้วไม่มีค่าตรง ส่วน `ยังไม่ตรวจ` หมายถึงขั้นก่อนหน้าไม่ผ่าน จึงยังไม่ค้นขั้นนั้น รายละเอียดนี้แสดงเฉพาะแถว Pilot ที่ไม่มีเส้นทางผ่านครบ เพื่อไม่รวมผลคนละ PO/Variant/POP แล้วทำให้เข้าใจว่าผ่าน
+รายงาน Error ข้อ 17 มีชีต `Rule 17 Detail` แยกตาม No. และ PO/Variant แสดงขั้นตอน สถานะ ค่าที่ต้องการ ค่าที่พบจริง และไฟล์/แถวหลักฐาน สถานะ `พบค่าที่ตรง` หมายถึงพบค่าตาม Pilot ในเส้นทางนั้น `ไม่พบค่าที่ตรง` หมายถึงตรวจแล้วไม่มีค่าตรง ส่วน `ยังไม่ตรวจ` หมายถึงขั้นก่อนหน้าไม่ผ่าน จึงยังไม่ค้นขั้นนั้น รายละเอียดนี้แสดงเฉพาะแถว Pilot ที่ไม่มีเส้นทางผ่านครบ เพื่อไม่รวมผลคนละ PO/Variant แล้วทำให้เข้าใจว่าผ่าน

@@ -104,7 +104,7 @@ class DatabaseTests(unittest.TestCase):
         connection = Connection(Cursor())
         with tempfile.TemporaryDirectory() as directory, \
              patch('database_source.read_mat_code_catalog', return_value={'products':[], 'prices':[]}), \
-             patch('database_source.find_product_master', return_value={'001':[{'COMMERCIAL_NAME':'001','SAP_DESCRIPTION':'001'}]}), \
+             patch('database_source.find_product_master', return_value={'001':[{'COMMERCIAL_NAME':'001','SAP_DESCRIPTION':'001','SAP_DESCRIPTION_TH':'001'}]}), \
              patch('database_source.open_database', return_value=(connection, 'dbo')) as opener, \
              patch.dict('sys.modules', {'sqlite3': None}), \
              patch('logging.FileHandler', return_value=logging.NullHandler()), \

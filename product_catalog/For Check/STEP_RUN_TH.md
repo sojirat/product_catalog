@@ -53,12 +53,14 @@ make check INPUT_DIR="05112026131200" CHECK_ARGS="--csv"
 make check INPUT_DIR="05112026131200" CHECK_ARGS="--csv --rules 15"
 make check INPUT_DIR="05112026131200" CHECK_ARGS="--csv --rules 14 15"
 
-# ตรวจ export รอบล่าสุด และเรียกฐานข้อมูลสำหรับข้อมูลอ้างอิง
+# ตรวจ export รอบล่าสุด และใช้ CSV ใน Database สำหรับข้อมูลอ้างอิง (ค่าเริ่มต้น)
 make check
 
-# ตรวจ export รอบล่าสุด และใช้ CSV สำหรับข้อมูลอ้างอิง
-make check CHECK_ARGS="--latest-export ./export --csv"
+# ตรวจ export รอบล่าสุด แต่เรียกฐานข้อมูลจริงสำหรับข้อมูลอ้างอิง (ช้า เพราะ query ทีละ SKU)
+make check CHECK_SOURCE=
 ```
+
+`make check` ใส่ `--csv` ให้อัตโนมัติ จึงต้องวาง `PRODUCT_MST.csv` และ `PRICE_MST.csv` ใน `Database/` หากไม่มีจะขึ้น WARNING และข้อ 7, 13, 14, 15 เป็น Review
 
 เมื่อระบุรอบ export ร่วมกับ `--csv` ข้อมูลตั้งต้นยังอ่าน Excel ในรอบนั้นก่อน ส่วน `--csv` ใช้แทนการเรียกฐานข้อมูล ไม่ได้บังคับให้ข้อมูลตั้งต้นทั้งหมดอ่านจาก CSV
 

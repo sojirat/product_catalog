@@ -33,19 +33,23 @@ EXPORT_FILES = {
 }
 
 
-def latest_export_input(export_dir):
-    """Select the newest export by its DDMMYYYYHHMMSS folder name."""
+def latest_export_input(export_dir, suffix=''):
+    """Select the newest export by its DDMMYYYYHHMMSS<suffix> folder name, e.g. suffix '_selected'."""
     candidates = []
     for folder in export_dir.iterdir():
-        if not folder.is_dir() or len(folder.name) != 14 or not folder.name.isascii() or not folder.name.isdigit():
+        name = folder.name
+        if not folder.is_dir() or not name.endswith(suffix):
+            continue
+        stamp = name[:len(name) - len(suffix)] if suffix else name
+        if len(stamp) != 14 or not stamp.isascii() or not stamp.isdigit():
             continue
         try:
-            timestamp = datetime.strptime(folder.name, '%d%m%Y%H%M%S')
+            timestamp = datetime.strptime(stamp, '%d%m%Y%H%M%S')
         except ValueError:
             continue
         candidates.append((timestamp, folder))
     if not candidates:
-        raise ValueError(f'No timestamped export folders (DDMMYYYYHHMMSS) found in {export_dir}')
+        raise ValueError(f'No timestamped export folders (DDMMYYYYHHMMSS{suffix}) found in {export_dir}')
     root = max(candidates)[1] / 'xlsx'
     if not root.is_dir() and not (root.parent / 'csv').is_dir():
         raise NotADirectoryError(f'Latest export has no xlsx folder: {root}')

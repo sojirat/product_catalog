@@ -39,10 +39,12 @@ def main() -> None:
 
     mapping_table = get_mapping_table_name()
     excel_file_filter = get_excel_file_filter()
+    export_to = get_export_to()
 
     timestamp = datetime.now().strftime("%d%m%Y%H%M%S")
 
-    output_dir = get_output_dir() / timestamp
+    folder_suffix = f"_{export_to.lower()}" if export_to else ""
+    output_dir = get_output_dir() / f"{timestamp}{folder_suffix}"
     csv_dir = output_dir / "csv"
     xlsx_dir = output_dir / "xlsx"
 
@@ -60,6 +62,11 @@ def main() -> None:
                 cursor,
                 mapping_table,
                 config.schema,
+            )
+
+            mapping_rows = filter_mapping_rows_by_export_to(
+                mapping_rows,
+                export_to,
             )
 
             mapping_rows = filter_mapping_rows_by_excel_file(
@@ -240,6 +247,13 @@ def get_excel_file_filter() -> set[str]:
     }
 
 
+def get_export_to() -> str:
+    """template_mapping.export_to value to export. Empty = rows where export_to is NULL/blank."""
+    import os
+
+    return os.getenv("EXPORT_TO", "").strip()
+
+
 #
 # DATABASE
 #
@@ -338,6 +352,22 @@ def inject_missing_union_target_rows(
         )
 
     return injected
+
+
+def filter_mapping_rows_by_export_to(
+    mapping_rows: list[dict],
+    export_to: str,
+) -> list[dict]:
+    """Keep rows whose export_to matches (case-insensitive); empty export_to keeps NULL/blank rows."""
+    wanted = export_to.casefold()
+
+    def row_export_to(row: dict) -> str:
+        for key, value in row.items():
+            if str(key).strip().casefold() == "export_to":
+                return text_value(value).casefold()
+        return ""
+
+    return [row for row in mapping_rows if row_export_to(row) == wanted]
 
 
 def filter_mapping_rows_by_excel_file(
@@ -1626,14 +1656,15 @@ def clear_merged_cells_in_range(
     start_row: int,
     end_row: int,
 ) -> None:
+    # Drop the merge definition only. openpyxl's unmerge_cells() deletes the
+    # covered cells and raises KeyError when delete_rows() already removed them
+    # (delete_rows does not update merged ranges).
     for merged_range in list(worksheet.merged_cells.ranges):
         if (
             merged_range.min_row <= end_row
             and merged_range.max_row >= start_row
         ):
-            worksheet.unmerge_cells(
-                str(merged_range)
-            )
+            worksheet.merged_cells.remove(merged_range)
 
 
 def copy_header_merge_ranges(
@@ -1738,6 +1769,11 @@ def clear_rows_from(
     start_row: int,
 ) -> None:
     if worksheet.max_row >= start_row:
+        clear_merged_cells_in_range(
+            worksheet,
+            start_row,
+            worksheet.max_row,
+        )
         worksheet.delete_rows(
             start_row,
             worksheet.max_row - start_row + 1,

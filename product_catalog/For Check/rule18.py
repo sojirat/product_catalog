@@ -5,6 +5,9 @@ from datetime import datetime
 from pathlib import Path
 
 
+MAPPING_HEADERS = ('MAT_CODE', 'Variant ID', 'PO ID', 'Match Status', 'Pilot CSV Record')
+
+
 def read_mat_codes(directory, on_source=None):
     paths = sorted(Path(directory).glob('mat_code_*.csv'))
     if not paths:
@@ -41,12 +44,20 @@ def read_mat_codes(directory, on_source=None):
 def check_mat_codes(v, path, rows):
     if not v.has(18, 'v'):
         return
-    skus = {row['sku'] for row in v.rows['v'] if row['po'] not in v.ex_po and row['sku'] != ''}
+    variants_by_sku = {code: set() for code, _ in rows if code}
+    for variant in v.rows['v']:
+        sku, po = variant['sku'], variant['po']
+        if sku in variants_by_sku and po not in v.ex_po:
+            variants_by_sku[sku].add((variant['vid'], po))
+    matches_by_sku = {sku: sorted(variants) for sku, variants in variants_by_sku.items()}
     found = 0
     for code, number in rows:
-        if code != '' and code in skus:
+        matches = matches_by_sku.get(code)
+        if matches:
             found += 1
+            v.mat_code_mapping.extend((code, vid, po, 'MATCHED', number) for vid, po in matches)
             continue
+        v.mat_code_mapping.append((code, '', '', 'NOT FOUND' if code else 'EMPTY MAT_CODE', number))
         v.add(18, 'ERROR', 'PILOT_MAT_CODE_MISSING' if code else 'PILOT_MAT_CODE_EMPTY',
               'ไม่พบ MAT_CODE ใน Product Variants.sku' if code else 'MAT_CODE ในไฟล์ Pilot ว่าง',
               src=str(path), sheet='Pilot MAT_CODE', rn=number, sku=code,

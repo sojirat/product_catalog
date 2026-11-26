@@ -36,6 +36,7 @@ class RuleValidator:
         self.pilot_diagnostics = []
         self.pilot_lookup = None
         self.mat_code_pilot_lookup = None
+        self.mat_code_mapping = []
         self.mat_code_catalog_lookup = None
         self.id_snapshot_check = None
         self.run_date = datetime.now(timezone(timedelta(hours=7))).date()

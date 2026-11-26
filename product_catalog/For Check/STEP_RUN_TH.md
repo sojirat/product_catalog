@@ -265,3 +265,5 @@ explorer ".\results"
 ```
 
 ผลอยู่ใน summary และชีต `Rule 18` ของ Error file เมื่อมี MAT_CODE ที่ไม่พบหรือว่าง เปลี่ยนโฟลเดอร์ด้วย `--pilot-dir "path\to\Pilot"` ได้ ตรวจข้อพิเศษพร้อมกันด้วย `--rules 17 18`
+
+เมื่ออ่านข้อมูลครบ โปรแกรมสร้าง `Result_Rule18_MatCode_Mapping_<วันเวลา>.xlsx` แสดง MAT_CODE, Variant ID, PO ID, สถานะ และเลขระเบียนในไฟล์ Pilot ถ้า MAT_CODE จับคู่ได้หลาย Variant รายงานจะแสดงทุกคู่แยกบรรทัด

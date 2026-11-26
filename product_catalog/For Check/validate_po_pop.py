@@ -163,8 +163,11 @@ def export_report(v, path, severity, verify=True, rows_per_sheet=DEFAULT_REPORT_
  """
  if isinstance(rows_per_sheet, bool) or not isinstance(rows_per_sheet, int) or not 1 <= rows_per_sheet <= EXCEL_MAX_DATA_ROWS:
   raise ValueError(f'rows_per_sheet must be between 1 and {EXCEL_MAX_DATA_ROWS}')
- selected = (v.main_model_passes if severity == 'PASS' else sorted((i for i in v.issues if (i['severity']=='ERROR') == (severity=='ERROR')), key=lambda i: (float(i['rule']) if i['rule']!='INPUT' else 0, i['id'])))
- if not selected:
+ if severity == 'MAT_CODE':
+  selected = []
+ else:
+  selected = (v.main_model_passes if severity == 'PASS' else sorted((i for i in v.issues if (i['severity']=='ERROR') == (severity=='ERROR')), key=lambda i: (float(i['rule']) if i['rule']!='INPUT' else 0, i['id'])))
+ if not selected and severity != 'MAT_CODE':
   LOG.info('Report %s: skipped because there are no matching issues',path.name)
   return {}
  wb=Workbook(write_only=True)
@@ -205,10 +208,16 @@ def export_report(v, path, severity, verify=True, rows_per_sheet=DEFAULT_REPORT_
     if sheet is not None:
      sheet.auto_filter.ref=f'A1:{get_column_letter(len(header))}{rowcounts[sheet.title]}'
     part+=1
-    sheet=new_sheet(base+(' '+str(part) if part>1 else ''),header)
+    sheet=new_sheet(base+(' '+str(part) if part>1 else ''),list(header))
    append(sheet,row)
   if sheet is not None:
    sheet.auto_filter.ref=f'A1:{get_column_letter(len(header))}{rowcounts[sheet.title]}'
+ if severity == 'MAT_CODE':
+  from rule18 import MAPPING_HEADERS
+  if v.mat_code_mapping:
+   write_split('Rule 18 Mapping', MAPPING_HEADERS, v.mat_code_mapping)
+  else:
+   new_sheet('Rule 18 Mapping', list(MAPPING_HEADERS))
  LOG.info('Report %s: writing %s cases',path.name,len(selected))
  buckets={str(number):[] for number in RULE_NUMBERS}
  if any(r['rule']=='INPUT' for r in selected):buckets={'INPUT':[],**buckets}
@@ -246,7 +255,7 @@ def export_report(v, path, severity, verify=True, rows_per_sheet=DEFAULT_REPORT_
   write_split('Char duplicate detail', CV_DETAIL_HEADERS,
               ([row[field] for field in CV_DETAIL_FIELDS] for row in duplicates))
  # Every repeated Char_Value row behind a 9.4 case is available, not a sample.
- if 'cv' in v.ready:
+ if selected and 'cv' in v.ready:
   eh=['Case ID','Source File','Source Sheet','Source Record','PO ID','Characteristics ID','Char Name','value']
   from validation_rules import group
   LOG.info('Report %s: indexing %s Char_Value records for source evidence',path.name,len(v.rows['cv']))
@@ -440,6 +449,10 @@ def _main(argv=None):
   if 17 in selected_rules:
    from rule17 import export_pilot
    summary['pilot_report_rows']=export_pilot(v,out/f'Result_Rule17_Pilot_{stamp}.xlsx',args.report_rows_per_sheet)
+  if '18_mat_code_rows' in v.coverage:
+   summary['mat_code_mapping_report_rows']=export_report(
+       v,out/f'Result_Rule18_MatCode_Mapping_{stamp}.xlsx','MAT_CODE',
+       rows_per_sheet=args.report_rows_per_sheet)
   if v.main_model_passes:
    summary['main_model_null_report_rows']=export_report(v,out/f'Result_Rule7_NoMainModel_{stamp}.xlsx','PASS',rows_per_sheet=args.report_rows_per_sheet)
   if any(i['severity']!='ERROR' for i in v.issues):
